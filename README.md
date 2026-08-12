@@ -4,7 +4,7 @@ Fetches a web article and writes its full content — structure intact, images s
 
 Built to replace the Notion Web Clipper browser extension for open-web articles. A Claude session creates the page in the **WDB | Resources** database and sets every property; this service fills in the body.
 
-**Status:** bootstrapping. Nothing is built yet — see [ROADMAP.md](ROADMAP.md).
+**Status:** MVP built, not yet deployed or run against Notion. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -25,12 +25,11 @@ What it deliberately does **not** do: create pages, set properties, categorise, 
 
 ## Setup
 
-> Placeholder steps — these firm up as the project is built (see M0 in the roadmap).
-
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in the values (see below)
-3. `netlify dev`
-4. Check `http://localhost:8888/.netlify/functions/health`
+3. `npm test` — unit tests, no network or Notion access required
+4. `npm run typecheck`
+5. `netlify dev` to run the function locally
 
 ### Environment variables
 
@@ -56,15 +55,16 @@ Proposed structure — parts don't exist yet. Full annotated version in [CLAUDE.
 ├── README.md               # This file
 ├── netlify.toml            # Netlify config
 ├── public/                 # Static publish dir (404 page only)
-├── netlify/functions/      # Entry points — thin: auth, validate, hand off
+├── netlify/functions/      # Entry point — thin: auth, validate, hand off
 ├── src/
-│   ├── http/               # Auth, validation, SSRF protection
-│   ├── fetch/              # Source HTML retrieval
-│   ├── extract/            # Readable article + image URL resolution
-│   ├── convert/            # HTML → Notion blocks
-│   └── notion/             # API client, guards, appends, file uploads
-├── spikes/                 # Standalone prototypes, never imported by src/
-└── tests/fixtures/         # Saved HTML from real articles
+│   ├── config.ts           # Env vars and every tunable
+│   ├── errors.ts           # Error classes with plain-language messages
+│   ├── log.ts              # Structured logging
+│   ├── extract.ts          # Fetch + Readability + paywall detection
+│   ├── blocks.ts           # HTML → Notion blocks
+│   ├── notion.ts           # Notion API client
+│   └── pipeline.ts         # Orchestration
+└── tests/                  # Unit tests
 ```
 
 ---

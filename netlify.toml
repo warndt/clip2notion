@@ -1,9 +1,15 @@
 [build]
   publish = "public"
 
+[build.environment]
+  NODE_VERSION = "22"
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+  # jsdom does dynamic requires and pulls an optional native dep (canvas), which
+  # esbuild cannot bundle. Netlify installs it into the function zip instead.
+  external_node_modules = ["jsdom"]
 
 # Block internal project files from public access
 # force = true is required to override actual files on disk
