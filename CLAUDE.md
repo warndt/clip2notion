@@ -44,55 +44,27 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │
 ├── netlify/
 │   └── functions/
-│       ├── clip-background.ts      # Entry point: auth → validate → run pipeline. Returns 202.
-│       └── health.ts               # Liveness + config sanity check (no secrets in output)
+│       └── clip-background.ts      # Entry point: auth → validate → run pipeline
 │
 ├── src/
-│   ├── config.ts                   # Env vars + all tunables (timeouts, caps, concurrency)
+│   ├── config.ts                   # Env vars + every tunable, all env-overridable
 │   ├── errors.ts                   # ClipError taxonomy — see Data Formats
-│   ├── log.ts                      # Structured JSON logging to function logs
-│   │
-│   ├── http/
-│   │   ├── auth.ts                 # Constant-time shared-secret comparison
-│   │   ├── validate.ts             # Request body validation, page-id normalisation
-│   │   └── ssrf.ts                 # Blocks localhost/private IPs, incl. through redirects
-│   │
-│   ├── fetch/
-│   │   └── article.ts              # Fetch source HTML: browser UA, timeout, size cap
-│   │
-│   ├── extract/
-│   │   ├── article.ts              # HTML → { title, byline, siteName, date, contentHtml }
-│   │   ├── images.ts               # Lazy-load src resolution + relative URL absolutisation
-│   │   └── blocked.ts              # Paywall / bot-block / login-wall heuristics
-│   │
-│   ├── convert/
-│   │   ├── to-blocks.ts            # Extracted HTML → Notion block tree
-│   │   ├── rich-text.ts            # Inline marks + 2000-char rich-text chunking
-│   │   └── limits.ts               # Nesting flattening, block-count caps
-│   │
-│   ├── notion/
-│   │   ├── client.ts               # Fetch wrapper: version header, 429 + Retry-After, backoff
-│   │   ├── guard.ts                # Verifies page belongs to the Resources data source
-│   │   ├── append.ts               # Appends children in batches of 100
-│   │   ├── file-upload.ts          # external_url import + poll until uploaded/failed
-│   │   └── status.ts               # In-progress / error callout lifecycle
-│   │
-│   ├── idempotency.ts              # Detects an existing clip before writing — see Hard Constraints
-│   └── pipeline.ts                 # Orchestration: the whole run, start to finish
-│
-├── spikes/                         # Standalone prototypes. Not imported by src/.
-│   └── README.md                   # What each spike proved, and when
+│   ├── log.ts                      # Structured JSON logging, keyed by clip_id
+│   ├── notion.ts                   # API client, parent check, append, file upload
+│   ├── extract.ts                  # Fetch + Readability + paywall/bot-block detection
+│   ├── blocks.ts                   # DOM walk → Notion blocks, rich text, tables, images
+│   └── pipeline.ts                 # Orchestration: idempotency, status, image import, append
 │
 └── tests/
-    └── fixtures/                   # Saved HTML from real articles — the regression suite
+    └── *.test.ts                   # Covers the five invisible-failure cases
 ```
 
 **Rules for this structure**
 
-- `netlify/functions/*` stays thin: auth, validate, hand off to `src/pipeline.ts`. All logic lives in `src/` so it can be tested without Netlify.
+- One file per pipeline stage. **Split a file when it gets annoying to work in, not before** — this is a small service, and an earlier five-directory split was cut deliberately.
+- `netlify/functions/clip-background.ts` stays thin: auth, validate, hand off to `src/pipeline.ts`. All logic lives in `src/` so it can be tested without Netlify.
 - Nothing in `src/` imports from `netlify/`.
-- `spikes/` is throwaway proof-of-concept code. It never gets imported by the real app; findings get folded in deliberately.
-- Every real article that breaks something becomes a fixture in `tests/fixtures/`.
+- Every real article that breaks something becomes a test case.
 
 ---
 
@@ -186,34 +158,28 @@ Content-Type: application/json
 ```json
 {
   "page_id": "2f1b8c4e-...",
-  "url": "https://example.com/article",
-  "force": false
+  "url": "https://example.com/article"
 }
 ```
 
 - `page_id` — required. Notion page id, with or without dashes. Must already exist and live in the Resources data source.
 - `url` — required. Absolute `https://` URL of the article.
-- `force` — optional, default `false`. Re-clip a page that already has a clip header. See Idempotency below.
 
 **This contract is described in a Claude project prompt.** Keep it simple and keep it stable — every change here means the caller's prompt has to change too. Additions must be optional and backwards-compatible.
 
 ### Response
 
-Background functions return `202` immediately and cannot report the outcome. The body carries only a correlation id:
+⚠️ **A background function always returns `202`.** Netlify responds before the handler runs, so the response body is fixed and the handler cannot change it. Auth failure, an invalid URL, and a page outside the Resources data source are all *rejected silently* — nothing is written, the rejection is logged, and the caller still sees `202`.
 
-```json
-{ "accepted": true, "clip_id": "clp_a1b2c3d4" }
-```
-
-Rejections happen before dispatch and return a real status: `401` (bad or missing secret), `400` (invalid body or URL), `403` (page not in the Resources data source), `405` (wrong method).
+This is a known and accepted MVP limitation, recorded in the ROADMAP backlog. The fix, if the silence ever bites, is a synchronous validating function in front of this one. **Do not "fix" it by making the handler return error codes — they go nowhere.**
 
 ### Outcome reporting
 
 The caller sees the result **in the page itself**, because the HTTP response can't carry it:
 
-1. First write is a `⏳ Clipping in progress…` callout containing the `clip_id`.
+1. First write is a `⏳ Clipping in progress…` callout.
 2. On success it is deleted, and the article — led by a header block giving title, publication, author, date, and a link to the original — is what remains.
-3. On failure it is replaced with an error callout naming the failure class and what to do about it.
+3. On failure it is updated in place into an error callout saying what went wrong in plain language and what to do about it. Partial content stays; nothing is auto-deleted.
 
 Every run also emits structured JSON to the Netlify function log, keyed by `clip_id`.
 
@@ -229,17 +195,18 @@ Distinguished because the user's next action differs for each. Defined in `src/e
 | `NOTION_FAILED` | Notion API rejected a write | Depends on status |
 | `INVALID_TARGET` | Page missing, or not in the Resources data source | No |
 
-Only transient classes may throw out of the handler and let Netlify retry. Everything else records to the page and exits successfully.
+**Only transient classes may throw out of the handler.** Everything else records to the page and returns normally, so Netlify does not retry it. And once article content has begun appending, *nothing* may throw — a transient failure mid-append would be retried on top of the partial content.
 
 ### Idempotency
 
-The permanent header block at the top of a completed clip records the source URL and is the idempotency key. Before writing anything, check the page's existing children:
+The clip header — a paragraph containing a link to the source URL — is the idempotency key. It is written **in the same append call as the first article content**, so a run that dies mid-append still leaves the key behind for the retry to find.
 
-- Clip header already present for this URL → stop, log, do nothing. This is the Netlify-retry case.
+Before writing anything, list the page's existing children:
+
+- A paragraph already links to this URL → already clipped. Stop, log, do nothing. This is the Netlify-retry case.
 - In-progress callout present → an earlier invocation may still be running (it has up to 15 minutes). Stop.
-- `force: true` → remove the previous clip's blocks first, then proceed.
 
-A run that fails partway leaves its partial content and an error callout in place rather than half-cleaning up. Recovery is an explicit `force` re-clip, so nothing gets silently deleted.
+A run that fails partway leaves its partial content and an error callout in place rather than half-cleaning up. **Recovery is manual and deliberate:** delete the clipped blocks in Notion, then call the endpoint again. There is no `force` flag — nothing in this service ever auto-deletes a user's content.
 
 ---
 

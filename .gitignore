@@ -9,3 +9,6 @@ dist/
 
 .DS_Store
 *.log
+
+# Local Claude Code settings
+.claude/settings.local.json
