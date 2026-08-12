@@ -41,13 +41,51 @@ The whole service, in one pass. Awaiting review.
 
 ---
 
+## M3 — Make the service callable by its actual client ⬜
+
+**Blocking.** The pipeline works; the door only opens from environments the real caller doesn't have.
+
+The intended caller is a Claude session in the claude.ai chat interface. That environment **cannot POST to `<your-site>.netlify.app`** — its sandbox refuses non-allowlisted hosts at the egress proxy (`x-deny-reason: host_not_allowed`), and its fetch tool is GET-only and cannot set an `X-Clip-Secret` header. Verified directly on 2026-08-12, not assumed.
+
+The M2 clips below prove the pipeline; they do **not** prove callability, because a terminal and that sandbox have different network access.
+
+- ⬜ **Spike: minimal remote MCP server.** One trivial tool, connected from claude.ai, proving the handshake works from Anthropic's infrastructure to Netlify. Custom connectors are available on all plans, and Claude connects *from Anthropic's cloud*, not the sandbox — which is why this route sidesteps egress entirely.
+- ⬜ **The spike must also prove a structured error round-trips** — that a rejection reaches the session as something specific and actionable, not something generic. This is the entire justification for choosing MCP over the webhook fallback; if error semantics turn out mushy, the comparison needs revisiting *before* the port, not after.
+- ⬜ If the spike passes: port `runClip` behind the MCP entry point. Mechanical — the pipeline is unchanged.
+- ⬜ Rewrite `CALLER-PROMPT.md` (currently marked superseded; do not paste it anywhere)
+
+**Documented fallback — Notion automation → webhook.** A paid-plan Notion database automation POSTs to the service when a page is created, inverting the direction so Notion calls us and the caller needs no HTTP capability at all.
+
+**Why it wasn't chosen, so nobody relitigates this from scratch:** it surrenders synchronous rejection. There is no way to tell the calling session "that URL was malformed" at call time — everything becomes write, wait, re-read. That is the confidently-wrong-answer shape this project is organised against, and getting a real status code back is precisely why the validating front function exists. Setup is also manual UI config with weak auth options, likely putting the secret in a query string.
+
+---
+
 ## M2 — Clip twenty real articles ⬜
 
 The actual test plan. Nothing here is speculative work — it's finding out what breaks.
 
-- 🟡 Write the calling snippet for the Claude project prompt — `CALLER-PROMPT.md`, including what the caller does on each non-2xx status
-- ⬜ Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
-- ⬜ Deploy
+- 🟡 Write the calling snippet for the Claude project prompt — `CALLER-PROMPT.md`. **Superseded, see M3.**
+- 🟡 Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
+- 🟡 Deploy
+
+### Verified against live Notion (2026-08-12)
+
+Three real clips, from a terminal. All four of the testable must-be-right items now hold in production, not just against fixtures:
+
+- 🟡 **Images stored in Notion** — NASA Hubble Science, 6/6 images imported and serving from `prod-files-secure.s3.us-west-2.amazonaws.com`, zero degraded to hotlinks. Captions preserved. This is the one the project exists for.
+- 🟡 **Tables** — MDN `Cache-Control`, 2 tables converted to genuine Notion `table` blocks (not the HTML fallback), header rows detected, inline code preserved inside cells, empty cells intact. 30 code blocks, 34/34 headings, no content loss.
+- 🟡 **Fail visibly** — a paywalled NYT URL produced a red ⚠️ callout with the plain-language message and no partial content. Correctly classified `BLOCKED` at fetch (HTTP 403) rather than clipped as a stub.
+- 🟡 **No duplication on retry** — an identical re-POST of a completed clip returned `202` and wrote nothing; the page still holds exactly one header, one article, six images.
+- 🟡 Status callout lifecycle — appears on first write, deleted on success, updated in place to the error on failure.
+
+### Still untested: the dangerous idempotency case ⬜
+
+Re-POSTing a *completed* clip is the easy half. The state the design actually protects against is **content written → run died → Netlify retry arrives**, which no amount of clipping produces naturally.
+
+- ⬜ Inject a temporary throw after the first append batch, on a **preview deploy only**, and confirm the retry finds the clip header and stops.
+- ⬜ **The fault injection must be removed and its removal verified before anything merges.** A leftover fault line is its own hazard and is exactly the kind of thing that survives a rebase unnoticed. Ideally it never lands on a branch that can be merged.
+
+This is worth going out of the way for: it is the one failure that surfaces weeks later as duplicated article content, on a page nobody is watching.
 - ⬜ Clip twenty real articles across the spread: long-form magazine, technical posts with code, image-heavy listicles, at least one paywalled
 - ⬜ Log what breaks in the Backlog below; fix what actually breaks, not what might
 
@@ -64,6 +102,12 @@ Discovered work goes here rather than getting fixed in place.
 - ✅ Handled: `blog.rust-lang.org` answers a moved URL with a **200 whose body is a meta-refresh stub**. `fetch` doesn't follow those, so the clip failed as "not extractable" on a perfectly good article. `metaRefreshTarget` now follows short-delay refreshes on small pages. Regression-tested.
 - **Wikipedia infobox tables become a lossless HTML code block** (they use `colspan`). Correct by the rules, ugly in practice — and the ugliness is not about merged-cell handling, so don't "fix" it by loosening the merged-cell rule. Two specific problems: the fallback parks a wall of markup at the **top** of the article, where the reader hits it first; and the infobox image is inside that markup, so it never reaches the image importer and is hotlinked-by-omission. If this recurs on real clips, the likely fix is **detect infobox-shaped tables, skip them, and import the image separately** — not a change to table conversion. Wikipedia isn't the target use case, so this waits for a real occurrence.
 - Verified working against real HTML: image URL resolution (12 images off a Wikipedia article, 6 off a NASA page, all absolute and real rather than placeholders), code-block language detection, heading/list/quote structure, and the 2000-character rich-text cap.
+
+**Bug found in the M2 clips — code block languages are lost on MDN-style markup:**
+
+All 30 code blocks in the MDN clip came out as `plain text`, and the language name leaked in as a stray paragraph above each one. Root cause confirmed rather than guessed: MDN carries no `class` on the `<pre>` by the time Readability is done (`first <pre> class: null`), and puts the language in a *sibling* element — `<div><p><span>http</span></p><pre><code>…</code></pre></div>`. So `detectLanguage` has nothing to read, and the label element converts to a paragraph like any other unknown content.
+
+One root cause, two symptoms. Fix: when converting a `<pre>`, check the preceding sibling (and the wrapper's first child) for a short text node matching a known language; if it matches, use it as the language *and* suppress the paragraph. Not urgent — no content is lost, code is intact and correctly formatted, it's just unlabelled with a stray word above it. But it will affect every clip from any site using this common markup pattern.
 
 **Known limitations, shipped deliberately:**
 

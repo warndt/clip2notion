@@ -1,5 +1,23 @@
 # Caller prompt snippet
 
+> # ⛔ SUPERSEDED — DO NOT PASTE THIS INTO A CLAUDE PROJECT
+>
+> **This file describes an HTTP calling convention the intended caller cannot use.**
+>
+> The caller is a Claude session in the claude.ai chat interface. That environment
+> cannot POST to `<your-site>.netlify.app` — its sandbox refuses non-allowlisted
+> hosts at the egress proxy (`x-deny-reason: host_not_allowed`), and its fetching
+> tool is GET-only and cannot set an `X-Clip-Secret` header. Verified 2026-08-12,
+> not assumed.
+>
+> The instructions below are accurate for a **terminal or any environment with
+> unrestricted outbound HTTP**, which is how the service was tested. They are wrong
+> for the client this project is actually built for.
+>
+> This file is frozen pending the entry-point decision (see ROADMAP M3). Rewriting
+> it before then would just mean writing it twice. **Nothing here should be treated
+> as the current contract.**
+
 Paste the block below into the Claude project that creates Resources pages, filling in the two placeholders. Everything outside the fenced block is notes for you, not for the model.
 
 **Before pasting:** replace `<SITE>` with the Netlify site name and `<CLIP_SHARED_SECRET>` with the current production secret. The secret goes in the project prompt because the calling session needs to send it — treat the project as holding a credential, and rotate both places together.
