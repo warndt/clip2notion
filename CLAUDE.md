@@ -44,12 +44,15 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │
 ├── netlify/
 │   └── functions/
-│       └── clip-background.ts      # Entry point: auth → validate → run pipeline
+│       ├── clip.ts                 # The caller's endpoint. Validates synchronously,
+│       │                           #   returns a real status code, dispatches the work
+│       └── clip-background.ts      # The worker. 15 minutes, always answers 202
 │
 ├── src/
 │   ├── config.ts                   # Env vars + every tunable, all env-overridable
 │   ├── errors.ts                   # ClipError taxonomy — see Data Formats
 │   ├── log.ts                      # Structured JSON logging, keyed by clip_id
+│   ├── request.ts                  # Auth + request parsing, shared by both entry points
 │   ├── notion.ts                   # API client, parent check, append, file upload
 │   ├── extract.ts                  # Fetch + Readability + paywall/bot-block detection
 │   ├── blocks.ts                   # DOM walk → Notion blocks, rich text, tables, images
@@ -148,7 +151,7 @@ These bound any implementation. Several of them fail late and silently in produc
 
 ### Request
 
-`POST /.netlify/functions/clip-background`
+`POST /.netlify/functions/clip` ← **callers use this one**
 
 ```
 X-Clip-Secret: <CLIP_SHARED_SECRET>
@@ -158,20 +161,36 @@ Content-Type: application/json
 ```json
 {
   "page_id": "2f1b8c4e-...",
-  "url": "https://example.com/article"
+  "url": "https://example.com/article",
+  "force": false
 }
 ```
 
 - `page_id` — required. Notion page id, with or without dashes. Must already exist and live in the Resources data source.
-- `url` — required. Absolute `https://` URL of the article.
+- `url` — required. Absolute `http(s)` URL of the article.
+- `force` — optional, default `false`. Delete the previous clip on this page and clip it again. See Idempotency.
 
 **This contract is described in a Claude project prompt.** Keep it simple and keep it stable — every change here means the caller's prompt has to change too. Additions must be optional and backwards-compatible.
 
 ### Response
 
-⚠️ **A background function always returns `202`.** Netlify responds before the handler runs, so the response body is fixed and the handler cannot change it. Auth failure, an invalid URL, and a page outside the Resources data source are all *rejected silently* — nothing is written, the rejection is logged, and the caller still sees `202`.
+`/clip` is synchronous and its status codes mean what they say:
 
-This is a known and accepted MVP limitation, recorded in the ROADMAP backlog. The fix, if the silence ever bites, is a synchronous validating function in front of this one. **Do not "fix" it by making the handler return error codes — they go nowhere.**
+| Status | Meaning |
+|---|---|
+| `202` | Validated and dispatched. Body carries `clip_id`. |
+| `400` | Malformed body, bad page id, or a URL that isn't public http(s) |
+| `401` | Bad or missing `X-Clip-Secret` |
+| `403` | Page is not in the Resources data source |
+| `405` | Not a POST |
+| `500` | Service misconfigured (missing env vars) |
+| `502` | Notion unreachable, or the background function didn't start |
+
+**Why there are two functions.** The caller is a Claude session. A background function always answers `202` — Netlify responds before the handler runs and discards its return value — so a stale secret or a bad page id would come back as success, the session would report a clip that never happened, and the page would sit empty. That is the same failure shape as a truncated article or a hotlinked image: confidently delivered, wrong, invisible.
+
+So everything cheap and certain is checked synchronously in `/clip`, where the status code still means something. Only then is the work handed to `/clip-background`, which has 15 minutes and cannot report back.
+
+⚠️ `/clip-background` is publicly reachable in its own right, so it **repeats every check** rather than trusting its caller. It still always answers `202`. **Do not "fix" that by making it return error codes — they go nowhere.** Add checks to `/clip` instead.
 
 ### Outcome reporting
 
@@ -206,7 +225,15 @@ Before writing anything, list the page's existing children:
 - A paragraph already links to this URL → already clipped. Stop, log, do nothing. This is the Netlify-retry case.
 - In-progress callout present → an earlier invocation may still be running (it has up to 15 minutes). Stop.
 
-A run that fails partway leaves its partial content and an error callout in place rather than half-cleaning up. **Recovery is manual and deliberate:** delete the clipped blocks in Notion, then call the endpoint again. There is no `force` flag — nothing in this service ever auto-deletes a user's content.
+A run that fails partway leaves its partial content and an error callout in place rather than half-cleaning up.
+
+### Recovery: the `force` flag
+
+`force: true` deletes the previous clip and runs again. **The automatic path still never deletes anything** — that rule is about the service not destroying content on its own initiative, and a caller asking for a redo is an instruction, not initiative.
+
+Scope is the clip, not the page. Because the service only ever appends, a clip is the run of blocks from its header to the end of the page; anything **above** the header belongs to whoever set the page up and is never touched. Stale progress and error callouts are swept too, wherever they sit.
+
+Known trade-off: notes added *below* a clip fall inside that range and go with it. Bounding it exactly would need a footer marker block on every clip — a permanent visible artifact solving a problem that hasn't happened. In the backlog.
 
 ---
 
