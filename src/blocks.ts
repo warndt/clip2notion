@@ -36,8 +36,9 @@ export interface Block {
   [key: string]: unknown;
 }
 
-/** Marker text used to find our own blocks again on a retry. */
+/** Marker text used to find our own blocks again on a retry or a forced re-clip. */
 export const STATUS_MARKER = "Clipping in progress";
+export const ERROR_MARKER = "Clipping failed";
 export const HEADER_PREFIX = "Source:";
 
 interface Ctx {
@@ -737,7 +738,7 @@ export function errorCallout(message: string, clipId: string): Block {
     type: "callout",
     callout: {
       rich_text: splitRichText([
-        makeRichText("Clipping failed. ", { bold: true }, null),
+        makeRichText(`${ERROR_MARKER}. `, { bold: true }, null),
         makeRichText(message, {}, null),
         makeRichText(` (${clipId})`, { code: true }, null),
       ]),

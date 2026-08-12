@@ -10,14 +10,16 @@ Built to replace the Notion Web Clipper browser extension for open-web articles.
 
 ## How it's used
 
-A caller `POST`s a page id and a URL with a shared secret in a header. The service returns `202` immediately and does the work in the background, reporting its outcome by writing into the page itself — a progress callout while it runs, an error callout if it fails.
+A caller `POST`s a page id and a URL with a shared secret in a header. The request is validated synchronously — bad secret, bad page id, or a page outside the Resources database come back as real error codes — then the work runs in the background, reporting its outcome by writing into the page itself: a progress callout while it runs, an error callout if it fails.
 
 ```bash
-curl -X POST https://<site>.netlify.app/.netlify/functions/clip-background \
+curl -X POST https://<site>.netlify.app/.netlify/functions/clip \
   -H "X-Clip-Secret: $CLIP_SHARED_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"page_id": "<notion-page-id>", "url": "https://example.com/article"}'
 ```
+
+`202` means accepted, not finished — re-fetch the page to see the result. Add `"force": true` to delete an existing clip and run it again.
 
 What it deliberately does **not** do: create pages, set properties, categorise, log into paywalled sites, or rewrite article content.
 
@@ -55,11 +57,14 @@ Proposed structure — parts don't exist yet. Full annotated version in [CLAUDE.
 ├── README.md               # This file
 ├── netlify.toml            # Netlify config
 ├── public/                 # Static publish dir (404 page only)
-├── netlify/functions/      # Entry point — thin: auth, validate, hand off
+├── netlify/functions/
+│   ├── clip.ts             # The caller's endpoint — validates, returns real status codes
+│   └── clip-background.ts  # The worker — up to 15 minutes, always answers 202
 ├── src/
 │   ├── config.ts           # Env vars and every tunable
 │   ├── errors.ts           # Error classes with plain-language messages
 │   ├── log.ts              # Structured logging
+│   ├── request.ts          # Auth and request parsing, shared by both entry points
 │   ├── extract.ts          # Fetch + Readability + paywall detection
 │   ├── blocks.ts           # HTML → Notion blocks
 │   ├── notion.ts           # Notion API client
@@ -75,6 +80,6 @@ Netlify. `main` auto-deploys.
 
 - Publish directory: `public/`
 - Functions: `netlify/functions/`, bundled by esbuild — no separate build step
-- Runs as a **background function** (`-background` suffix): up to 15 minutes, returns `202` immediately
+- Two functions: `clip` validates synchronously and returns real status codes, then dispatches to `clip-background` (the `-background` suffix gives it 15 minutes, at the cost of always answering `202`)
 
 ⚠️ Netlify bills by credit and every push deploys, so pushing costs money. Pushes are an explicit decision each time, never automatic.

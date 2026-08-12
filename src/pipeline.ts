@@ -18,16 +18,43 @@ import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
   clipHeader, collectImageBlocks, errorCallout, htmlToBlocks, statusCallout,
-  STATUS_MARKER, type Block,
+  ERROR_MARKER, STATUS_MARKER, type Block,
 } from "./blocks";
-import { blockLinksTo, blockPlainText, NotionClient } from "./notion";
+import { blockLinksTo, blockPlainText, NotionClient, type NotionBlockRecord } from "./notion";
 
 export interface ClipRequest {
   pageId: string;
   url: string;
+  /**
+   * Re-clip a page that already has a clip, deleting the previous one first.
+   *
+   * Deliberately explicit. The automatic path never deletes anything — but a
+   * caller asking for a redo is an instruction, not the service acting on its
+   * own initiative, and the alternative is deleting blocks by hand in the
+   * Notion UI, which is the tedium this project exists to remove.
+   */
+  force?: boolean;
 }
 
 export type ClipOutcome = "clipped" | "already_clipped" | "in_progress_elsewhere" | "failed";
+
+/**
+ * The clip header must travel in the same append call as the first article
+ * content. It is the idempotency key: a run that dies mid-append has to leave
+ * it behind, or Netlify's retry appends a second copy on top of the first.
+ *
+ * Extracted and exported so that guarantee is a test rather than a reading of
+ * the loop — including in the single-batch case, where it holds trivially and
+ * would be the easiest path to break without noticing.
+ */
+export function buildAppendBatches(header: Block, blocks: Block[], batchSize: number): Block[][] {
+  const payload = [header, ...blocks];
+  const batches: Block[][] = [];
+  for (let i = 0; i < payload.length; i += batchSize) {
+    batches.push(payload.slice(i, i + batchSize));
+  }
+  return batches;
+}
 
 export async function runClip(request: ClipRequest, config: Config, clipId: string): Promise<ClipOutcome> {
   const client = new NotionClient(config, clipId);
@@ -40,17 +67,24 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
 
   const existing = await client.listChildren(request.pageId);
 
-  if (existing.some((block) => blockLinksTo(block, request.url))) {
-    log("info", clipId, "already_clipped", { page_id: request.pageId });
-    return "already_clipped";
-  }
+  if (request.force) {
+    // Clear before the new progress callout is written, or it would be caught
+    // by the sweep it is standing in front of.
+    const removed = await clearPreviousClip(client, existing, request.url, clipId);
+    log("info", clipId, "force_recliped", { removed_blocks: removed });
+  } else {
+    if (existing.some((block) => blockLinksTo(block, request.url))) {
+      log("info", clipId, "already_clipped", { page_id: request.pageId });
+      return "already_clipped";
+    }
 
-  const runningStatus = existing.find(
-    (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
-  );
-  if (runningStatus) {
-    log("info", clipId, "in_progress_elsewhere", { status_block: runningStatus.id });
-    return "in_progress_elsewhere";
+    const runningStatus = existing.find(
+      (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
+    );
+    if (runningStatus) {
+      log("info", clipId, "in_progress_elsewhere", { status_block: runningStatus.id });
+      return "in_progress_elsewhere";
+    }
   }
 
   const statusResult = await client.appendChildren(request.pageId, [statusCallout(clipId)]);
@@ -83,9 +117,9 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
       url: request.url,
     });
 
-    const payload = [header, ...blocks];
+    const tail = [...blocks];
     if (truncatedAtBlockCap) {
-      payload.push(
+      tail.push(
         errorCallout(
           `This article exceeded the ${TUNABLES.maxBlocks}-block ceiling and was cut short here. ` +
             "Raise MAX_BLOCKS and re-clip if you need the rest.",
@@ -95,8 +129,7 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
       log("warn", clipId, "block_cap_hit", { cap: TUNABLES.maxBlocks });
     }
 
-    for (let i = 0; i < payload.length; i += TUNABLES.appendBatchSize) {
-      const batch = payload.slice(i, i + TUNABLES.appendBatchSize);
+    for (const batch of buildAppendBatches(header, tail, TUNABLES.appendBatchSize)) {
       await client.appendChildren(request.pageId, batch);
       // From here on the page has content and the header, so a retry would find
       // the idempotency key and stop. Nothing after this point may throw.
@@ -113,7 +146,7 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
     }
 
     log("info", clipId, "clip_done", {
-      blocks: payload.length,
+      blocks: tail.length + 1,
       images: collectImageBlocks(blocks).length,
       duration_ms: Date.now() - startedAt,
     });
@@ -136,6 +169,49 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
 
     return "failed";
   }
+}
+
+/**
+ * Delete the previous clip so a forced re-clip can start clean.
+ *
+ * Scoped to the clip, not the page. The service only ever appends, so the clip
+ * is the run of blocks from its header to the end of the page — anything above
+ * the header belongs to whoever set the page up and is left untouched. Stale
+ * progress and error callouts are swept too, wherever they sit.
+ *
+ * The trade-off worth knowing: notes added *below* a clip are inside that range
+ * and go with it. Bounding the range exactly would need a footer marker block
+ * on every clip, which is a permanent visible artifact to solve a problem that
+ * has not happened yet. Recorded in the ROADMAP backlog.
+ */
+async function clearPreviousClip(
+  client: NotionClient,
+  existing: NotionBlockRecord[],
+  url: string,
+  clipId: string,
+): Promise<number> {
+  const headerIndex = existing.findIndex((block) => blockLinksTo(block, url));
+
+  const doomed = headerIndex >= 0 ? existing.slice(headerIndex) : [];
+  const above = headerIndex >= 0 ? existing.slice(0, headerIndex) : existing;
+
+  for (const block of above) {
+    if (block.type !== "callout") continue;
+    const text = blockPlainText(block);
+    if (text.includes(STATUS_MARKER) || text.includes(ERROR_MARKER)) doomed.push(block);
+  }
+
+  for (const block of doomed) {
+    try {
+      await client.deleteBlock(block.id);
+    } catch (err) {
+      // Leaving a block behind is better than abandoning the re-clip; the worst
+      // case is a duplicate paragraph the user can see and delete.
+      log("warn", clipId, "force_delete_failed", { block_id: block.id, reason: String(err) });
+    }
+  }
+
+  return doomed.length;
 }
 
 /** Turn the progress callout into the error message, in place, at the top of the page. */
