@@ -33,6 +33,8 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 ├── CLAUDE.md                       # This file — Claude Code instructions
 ├── ROADMAP.md                      # Feature roadmap and task backlog (source of truth)
 ├── README.md                       # Project overview, setup, and usage
+├── CALLER-PROMPT.md                # The snippet pasted into the calling Claude project.
+│                                   #   Update it whenever the request contract changes.
 ├── netlify.toml                    # Netlify config: publish dir, functions, redirects, headers
 ├── package.json                    # Dependencies and scripts
 ├── tsconfig.json                   # TypeScript config
@@ -170,7 +172,7 @@ Content-Type: application/json
 - `url` — required. Absolute `http(s)` URL of the article.
 - `force` — optional, default `false`. Delete the previous clip on this page and clip it again. See Idempotency.
 
-**This contract is described in a Claude project prompt.** Keep it simple and keep it stable — every change here means the caller's prompt has to change too. Additions must be optional and backwards-compatible.
+**This contract is described in a Claude project prompt** — see `CALLER-PROMPT.md`. Keep it simple and keep it stable: every change here means the caller's prompt has to change too, and a prompt pasted into a Claude project doesn't update itself. Additions must be optional and backwards-compatible, and **any change to this section means updating `CALLER-PROMPT.md` in the same commit.**
 
 ### Response
 
