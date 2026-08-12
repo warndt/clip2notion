@@ -65,8 +65,11 @@ Before making **any** change to this codebase:
 
 ### Git & Deployment
 
-16. **Commit after every completed task.** Write clear, descriptive commit messages. One logical change per commit.
-17. **Never commit secrets, API keys, or environment-specific config.** Use `.env` files, config templates, and `.gitignore`.
+16. **Commit after every completed task.** Write clear, descriptive commit messages. One logical change per commit. Committing is free — **pushing is not.** See rule 16a.
+
+16a. **Never `git push` without asking Wil first — pushing costs money.** Deploys run through Netlify, which bills by credits, so every push spends real money. Treat pushing as a separate decision Wil makes explicitly, every time; approving a commit is not approving a push. Committing directly to `main` is fine when he asks for it — a branch is optional.
+
+17. **Never commit secrets, API keys, or environment-specific config.** Use `.env` files, config templates, and `.gitignore`. This project uses `NOTION_TOKEN` and `CLIP_SHARED_SECRET` — both are secrets and belong in Netlify environment variables, never in the repo.
 
 ---
 
