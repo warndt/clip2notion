@@ -1,33 +1,132 @@
 # Never start a Claude Code project from scratch
 
-# [Project Name] — Claude Code Instructions
+# clip2notion — Claude Code Instructions
 
 ## Read First
 
 Before making **any** change to this codebase:
 
 1. Read `ROADMAP.md` in full. Confirm your change does not conflict with or make harder any planned work. If it does, flag the conflict and ask before proceeding.
-2. Check the design system page at `/[ds-location]/` (if one exists) for established patterns, components, and design tokens.
+2. Check the design system page (if one exists) for established patterns, components, and design tokens. This is a headless service with no UI, so there probably won't be one — see the Design System section.
+3. Read the **Hard Constraints** section below before writing anything that touches Notion, the fetch layer, or the function entry point. Most of those constraints fail silently in production rather than loudly in testing.
 
 ---
 
 ## What This App Is
 
-<!-- One-paragraph description of the project purpose, who uses it, and how it's deployed. Fill this in when bootstrapping the project. -->
+**clip2notion** is a headless service that fills an existing Notion page with the full readable content of a web article. It replaces the Notion Web Clipper browser extension for open-web articles.
+
+The workflow it belongs to: a Claude project session creates a page in the **WDB | Resources** Notion database and sets every property (status, areas, tags, dates, relations) via the Notion MCP. Claude cannot write article body content at scale, so it hands this service a `page_id` and a `url`, and the service appends the article — structure preserved, images stored inside Notion rather than hotlinked so the clip survives the source site changing or disappearing.
+
+The service is deliberately narrow. It does not create pages, set properties, or make categorisation decisions — those belong to the caller, which means this service needs no changes when the database schema changes. It does not authenticate to source sites; paywalled content is out of scope and must fail visibly.
+
+Deployed as a Netlify function. Called by a Claude session over HTTPS with a shared secret in a header.
 
 ---
 
 ## File Structure
 
-<!-- Document the file structure here once established. Keep this up to date as files are added or moved. -->
+<!-- Keep this up to date as files are added or moved. This is the proposed structure — parts of it don't exist yet. See ROADMAP.md for build order. -->
 
 ```
 /
-├── CLAUDE.md               # This file — Claude Code instructions
-├── ROADMAP.md              # Feature roadmap and task backlog (source of truth)
-├── README.md               # Project overview, setup, and usage
-└── ...
+├── CLAUDE.md                       # This file — Claude Code instructions
+├── ROADMAP.md                      # Feature roadmap and task backlog (source of truth)
+├── README.md                       # Project overview, setup, and usage
+├── netlify.toml                    # Netlify config: publish dir, functions, redirects, headers
+├── package.json                    # Dependencies and scripts
+├── tsconfig.json                   # TypeScript config
+├── .env.example                    # Required env vars, no values — copy to .env locally
+├── .gitignore
+│
+├── public/                         # Static publish dir (near-empty; this is an API, not a site)
+│   └── 404.html
+│
+├── netlify/
+│   └── functions/
+│       ├── clip-background.ts      # Entry point: auth → validate → run pipeline. Returns 202.
+│       └── health.ts               # Liveness + config sanity check (no secrets in output)
+│
+├── src/
+│   ├── config.ts                   # Env vars + all tunables (timeouts, caps, concurrency)
+│   ├── errors.ts                   # ClipError taxonomy — see Data Formats
+│   ├── log.ts                      # Structured JSON logging to function logs
+│   │
+│   ├── http/
+│   │   ├── auth.ts                 # Constant-time shared-secret comparison
+│   │   ├── validate.ts             # Request body validation, page-id normalisation
+│   │   └── ssrf.ts                 # Blocks localhost/private IPs, incl. through redirects
+│   │
+│   ├── fetch/
+│   │   └── article.ts              # Fetch source HTML: browser UA, timeout, size cap
+│   │
+│   ├── extract/
+│   │   ├── article.ts              # HTML → { title, byline, siteName, date, contentHtml }
+│   │   ├── images.ts               # Lazy-load src resolution + relative URL absolutisation
+│   │   └── blocked.ts              # Paywall / bot-block / login-wall heuristics
+│   │
+│   ├── convert/
+│   │   ├── to-blocks.ts            # Extracted HTML → Notion block tree
+│   │   ├── rich-text.ts            # Inline marks + 2000-char rich-text chunking
+│   │   └── limits.ts               # Nesting flattening, block-count caps
+│   │
+│   ├── notion/
+│   │   ├── client.ts               # Fetch wrapper: version header, 429 + Retry-After, backoff
+│   │   ├── guard.ts                # Verifies page belongs to the Resources data source
+│   │   ├── append.ts               # Appends children in batches of 100
+│   │   ├── file-upload.ts          # external_url import + poll until uploaded/failed
+│   │   └── status.ts               # In-progress / error callout lifecycle
+│   │
+│   ├── idempotency.ts              # Detects an existing clip before writing — see Hard Constraints
+│   └── pipeline.ts                 # Orchestration: the whole run, start to finish
+│
+├── spikes/                         # Standalone prototypes. Not imported by src/.
+│   └── README.md                   # What each spike proved, and when
+│
+└── tests/
+    └── fixtures/                   # Saved HTML from real articles — the regression suite
 ```
+
+**Rules for this structure**
+
+- `netlify/functions/*` stays thin: auth, validate, hand off to `src/pipeline.ts`. All logic lives in `src/` so it can be tested without Netlify.
+- Nothing in `src/` imports from `netlify/`.
+- `spikes/` is throwaway proof-of-concept code. It never gets imported by the real app; findings get folded in deliberately.
+- Every real article that breaks something becomes a fixture in `tests/fixtures/`.
+
+---
+
+## Hard Constraints
+
+These bound any implementation. Several of them fail late and silently in production rather than in testing, which is why they are written down.
+
+### Netlify
+
+- Synchronous functions time out at **10s** (26s on Pro, by request). Background functions (`-background` filename suffix) run up to **15 minutes** but return `202` immediately and cannot report a result in the HTTP response.
+- **Netlify retries a failed background function after 1 minute, and again 2 minutes later.** A run that fails after partially appending content will otherwise duplicate that content. This is the single most important failure mode in the project.
+- Consequence: **only throw from the background handler for genuinely transient failures.** A deterministic failure (paywall, unextractable content, bad page id) must be recorded in the page, logged, and then returned as a success to Netlify — otherwise it gets retried twice for no reason.
+
+### Notion API
+
+- API version header is configurable via `NOTION_API_VERSION`. Current value at time of writing: **`2026-03-11`**. Re-check the live docs before assuming; this moves.
+- **Rich text is capped at 2000 characters per object.** Long paragraphs must be split across multiple rich-text objects in the same block, never truncated.
+- **Block children append 100 at a time.** Long articles need batching.
+- Block nesting depth is limited. Deeply nested lists must be flattened, not dropped and not failed on.
+- Rate limit is roughly **3 requests/second** averaged. Handle `429` by honouring `Retry-After`.
+- **Image permanence uses file import:** `POST /v1/file_uploads` with `mode: "external_url"`. Notion fetches the file itself, asynchronously — poll `GET /v1/file_uploads/{id}` until `status` leaves `pending` (becomes `uploaded` or `failed`) before attaching it to a block. Check `file_import_result` for the error detail on failure.
+- That import is rejected if the URL isn't SSL, isn't publicly reachable, has no `Content-Type` header, exceeds the workspace per-file size limit, or lacks a valid filename and supported MIME type. **Real articles hit all of these.** An image that can't be imported degrades to an external reference and the degradation gets logged — it never vanishes.
+- Databases and data sources are distinct in current API versions. `RESOURCES_DATA_SOURCE_ID` is a **data source** id, and the page-parent check must compare against the right field.
+
+### Real-world HTML
+
+- **Image URLs in extracted content are frequently relative.** Resolve every image and link URL against the article's final (post-redirect) base URL.
+- **Lazy-loaded images put a placeholder in `src`** with the real image in `data-src`, `data-srcset`, or `srcset`. Naive extraction imports 1×1 spacers and tracking pixels, and the result looks fine in code review. Prefer the largest candidate from `srcset`/`data-srcset`, then `data-src`, then `src`.
+
+### Security
+
+- Shared secret compared in **constant time**. Never `===`.
+- **Always verify the target page's parent is the Resources data source before writing.** A leaked secret must not permit appending to arbitrary pages in the workspace.
+- SSRF protection on the fetch target: no localhost, no private/link-local/loopback IP ranges, HTTPS only, and re-check **on every redirect hop**, not just the initial URL.
 
 ---
 
@@ -75,22 +174,106 @@ Before making **any** change to this codebase:
 
 ## Data Formats
 
-<!-- Document any data schemas (JSON structures, database models, etc.) here so Claude can reference them when editing data files. -->
+### Request
+
+`POST /.netlify/functions/clip-background`
+
+```
+X-Clip-Secret: <CLIP_SHARED_SECRET>
+Content-Type: application/json
+```
+
+```json
+{
+  "page_id": "2f1b8c4e-...",
+  "url": "https://example.com/article",
+  "force": false
+}
+```
+
+- `page_id` — required. Notion page id, with or without dashes. Must already exist and live in the Resources data source.
+- `url` — required. Absolute `https://` URL of the article.
+- `force` — optional, default `false`. Re-clip a page that already has a clip header. See Idempotency below.
+
+**This contract is described in a Claude project prompt.** Keep it simple and keep it stable — every change here means the caller's prompt has to change too. Additions must be optional and backwards-compatible.
+
+### Response
+
+Background functions return `202` immediately and cannot report the outcome. The body carries only a correlation id:
+
+```json
+{ "accepted": true, "clip_id": "clp_a1b2c3d4" }
+```
+
+Rejections happen before dispatch and return a real status: `401` (bad or missing secret), `400` (invalid body or URL), `403` (page not in the Resources data source), `405` (wrong method).
+
+### Outcome reporting
+
+The caller sees the result **in the page itself**, because the HTTP response can't carry it:
+
+1. First write is a `⏳ Clipping in progress…` callout containing the `clip_id`.
+2. On success it is deleted, and the article — led by a header block giving title, publication, author, date, and a link to the original — is what remains.
+3. On failure it is replaced with an error callout naming the failure class and what to do about it.
+
+Every run also emits structured JSON to the Netlify function log, keyed by `clip_id`.
+
+### Error classes
+
+Distinguished because the user's next action differs for each. Defined in `src/errors.ts`.
+
+| Class | Meaning | Retry? |
+|---|---|---|
+| `FETCH_FAILED` | Source unreachable, timed out, non-2xx | Transient — yes |
+| `BLOCKED` | Paywall, login wall, or bot-block suspected | No — out of scope by design |
+| `NOT_EXTRACTABLE` | Fetched fine, no readable article found | No |
+| `NOTION_FAILED` | Notion API rejected a write | Depends on status |
+| `INVALID_TARGET` | Page missing, or not in the Resources data source | No |
+
+Only transient classes may throw out of the handler and let Netlify retry. Everything else records to the page and exits successfully.
+
+### Idempotency
+
+The permanent header block at the top of a completed clip records the source URL and is the idempotency key. Before writing anything, check the page's existing children:
+
+- Clip header already present for this URL → stop, log, do nothing. This is the Netlify-retry case.
+- In-progress callout present → an earlier invocation may still be running (it has up to 15 minutes). Stop.
+- `force: true` → remove the previous clip's blocks first, then proceed.
+
+A run that fails partway leaves its partial content and an error callout in place rather than half-cleaning up. Recovery is an explicit `force` re-clip, so nothing gets silently deleted.
 
 ---
 
 ## Deployment
 
-<!-- Document how the app is deployed: platform, build steps, environment variables, and any post-deploy steps. -->
+**Platform:** Netlify. `main` auto-deploys.
+
+⚠️ **Pushing costs money** (Netlify bills by credit and every push deploys). See rule 16a — never push without asking Wil, every time.
+
+- **Publish directory:** `public/` — a placeholder 404 page. This is an API, not a site.
+- **Build command:** none currently. Netlify's esbuild bundler compiles the TypeScript functions.
+- **Functions directory:** `netlify/functions/`.
+- **Local dev:** `netlify dev`, with a `.env` copied from `.env.example`.
+
+### Environment variables
+
+Set in the Netlify UI (Site configuration → Environment variables). Never in the repo.
+
+| Variable | Required | Notes |
+|---|---|---|
+| `NOTION_TOKEN` | yes | Internal integration token. The integration must be shared with the Resources database. **Secret.** |
+| `CLIP_SHARED_SECRET` | yes | Endpoint authentication. **Secret.** |
+| `RESOURCES_DATA_SOURCE_ID` | no | Defaults to `<your-data-source-id>` |
+| `NOTION_API_VERSION` | no | Defaults to the current pinned version (`2026-03-11` at time of writing) |
+
+### Post-deploy check
+
+Hit `/.netlify/functions/health` — it reports whether required env vars are present and which Notion API version is pinned, without echoing any secret values.
 
 ---
 
 ## Design System
 
-<!-- Record the design system page location here once established. Example: -->
-<!-- Design system: `/ds/index.html` -->
-
-⚠️ **No design system page has been set up yet.** When UI work begins, ask about creating one.
+⚠️ **No design system page has been set up yet, and this project probably doesn't need one** — it's a headless API with no UI beyond a static 404 page. If UI work is ever added (a status dashboard, a manual trigger form), stop and ask about setting one up first.
 
 ---
 Version v1.2
