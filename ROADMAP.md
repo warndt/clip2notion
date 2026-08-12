@@ -45,8 +45,9 @@ The whole service, in one pass. Awaiting review.
 
 The actual test plan. Nothing here is speculative work — it's finding out what breaks.
 
-- ⬜ Deploy and set env vars in Netlify
-- ⬜ Write the calling snippet for the Claude project prompt
+- 🟡 Write the calling snippet for the Claude project prompt — `CALLER-PROMPT.md`, including what the caller does on each non-2xx status
+- ⬜ Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
+- ⬜ Deploy
 - ⬜ Clip twenty real articles across the spread: long-form magazine, technical posts with code, image-heavy listicles, at least one paywalled
 - ⬜ Log what breaks in the Backlog below; fix what actually breaks, not what might
 
