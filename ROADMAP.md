@@ -150,6 +150,14 @@ Discovered work goes here rather than getting fixed in place.
 - **Wikipedia infobox tables become a lossless HTML code block** (they use `colspan`). Correct by the rules, ugly in practice — and the ugliness is not about merged-cell handling, so don't "fix" it by loosening the merged-cell rule. Two specific problems: the fallback parks a wall of markup at the **top** of the article, where the reader hits it first; and the infobox image is inside that markup, so it never reaches the image importer and is hotlinked-by-omission. If this recurs on real clips, the likely fix is **detect infobox-shaped tables, skip them, and import the image separately** — not a change to table conversion. Wikipedia isn't the target use case, so this waits for a real occurrence.
 - Verified working against real HTML: image URL resolution (12 images off a Wikipedia article, 6 off a NASA page, all absolute and real rather than placeholders), code-block language detection, heading/list/quote structure, and the 2000-character rich-text cap.
 
+**Bug found in the first real MCP clip — srcset URLs containing commas were shredded. Fixed.**
+
+Substack's images came out as 404s pointing at `noahpinion.blog` instead of the CDN. Root cause: `fromSrcset` split the attribute on commas, but image CDNs put commas *inside* the URL — Cloudinary-style transforms like `.../fetch/$s_!ElHF!,w_424,c_limit,f_auto,q_auto:good,fl_progressive:steep/...`. Splitting produced fragments, the widest-looking fragment was a relative scrap, and it resolved against the article's own path.
+
+Now parsed per the HTML spec, where **a srcset URL is terminated by whitespace, not by a comma**. Verified against the live article: all three images return `200 image/webp` from `substackcdn.com`. Regression-tested with the real markup.
+
+Worth noting what this says about the earlier testing: the fixtures used simple `srcset="/w400.jpg 400w"` markup, which the broken parser handled correctly. Only a real CDN URL exposed it. The degradation path did work as designed — the failed import fell back to an external reference rather than dropping the image — but it degraded to a URL that was already wrong.
+
 **Bug found in the M2 clips — code block languages are lost on MDN-style markup:**
 
 All 30 code blocks in the MDN clip came out as `plain text`, and the language name leaked in as a stray paragraph above each one. Root cause confirmed rather than guessed: MDN carries no `class` on the `<pre>` by the time Readability is done (`first <pre> class: null`), and puts the language in a *sibling* element — `<div><p><span>http</span></p><pre><code>…</code></pre></div>`. So `detectLanguage` has nothing to read, and the label element converts to a paragraph like any other unknown content.

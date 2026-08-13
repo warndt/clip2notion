@@ -76,4 +76,16 @@ export const TUNABLES = {
 
   /** Images smaller than this in either dimension are spacers or tracking pixels. */
   minImageDimension: num("MIN_IMAGE_DIMENSION", 33),
+
+  /**
+   * How long a status call may block waiting for a clip to settle.
+   *
+   * Kept well short of any plausible MCP client timeout: the point is that a
+   * typical clip completes inside one tool call, not that every clip does.
+   */
+  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 20_000),
+  statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 2500),
+
+  /** How long clip_article waits after dispatch before answering. */
+  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 20_000),
 } as const;

@@ -185,6 +185,45 @@ test("lazy-loaded images resolve to the real file, not the placeholder", () => {
   assert.equal(data.caption[0]!.text.content, "A photo");
 });
 
+test("srcset URLs containing commas are not shredded", () => {
+  // Real Substack markup. Cloudinary-style transforms put commas INSIDE the
+  // URL, so splitting a srcset on commas produces relative fragments that
+  // silently resolve against the article's own path and 404. This shipped, and
+  // it produced a page of broken images that looked fine in the block tree.
+  const cdn = "https://substackcdn.com/image/fetch";
+  const target = "https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fx_739x415.jpeg";
+  const html = `
+    <img src="${cdn}/$s_!ElHF!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/${target}"
+         srcset="${cdn}/$s_!ElHF!,w_424,c_limit,f_auto,q_auto:good,fl_progressive:steep/${target} 424w, ${cdn}/$s_!ElHF!,w_848,c_limit,f_auto,q_auto:good,fl_progressive:steep/${target} 848w">`;
+
+  const { blocks } = htmlToBlocks(html, "https://www.noahpinion.blog/p/an-article");
+  const [image] = collectImageBlocks(blocks);
+
+  assert.ok(image);
+  const url = (payload(image) as { external: { url: string } }).external.url;
+
+  assert.ok(
+    url.startsWith("https://substackcdn.com/image/fetch/"),
+    `expected a substackcdn URL, got ${url}`,
+  );
+  assert.ok(!url.includes("noahpinion.blog"), "must not resolve a fragment against the article");
+  assert.match(url, /w_848/, "should pick the widest candidate");
+  assert.match(url, /fl_progressive:steep/, "the full transform chain must survive");
+});
+
+test("srcset candidates without descriptors still parse", () => {
+  const { blocks } = htmlToBlocks(
+    `<img srcset="https://cdn.example.com/a,b,c/one.jpg">`,
+    "https://example.com/post",
+  );
+  const [image] = collectImageBlocks(blocks);
+  assert.ok(image);
+  assert.equal(
+    (payload(image) as { external: { url: string } }).external.url,
+    "https://cdn.example.com/a,b,c/one.jpg",
+  );
+});
+
 test("srcset picks the largest candidate", () => {
   const html = `
     <img src="/small.jpg"

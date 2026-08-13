@@ -235,20 +235,65 @@ const LAZY_SRC_ATTRS = [
 
 const TRACKING_PATTERNS = /(^|[/_-])(pixel|spacer|blank|transparent|1x1|beacon)([._-]|$)/i;
 
+function descriptorWeight(descriptor: string): number {
+  const trimmed = descriptor.trim();
+  if (trimmed.endsWith("w")) return parseFloat(trimmed) || 1;
+  // Density beats width so a 2x candidate outranks a bare one.
+  if (trimmed.endsWith("x")) return (parseFloat(trimmed) || 1) * 1000;
+  return 1;
+}
+
+/**
+ * Parse a srcset into candidates, following the HTML spec's rule that **a URL
+ * is terminated by whitespace, not by a comma**.
+ *
+ * Splitting on commas is the obvious implementation and it is wrong. Image CDNs
+ * routinely put commas inside the URL — Cloudinary-style transforms like
+ * `.../fetch/$s_!ElHF!,w_424,c_limit,f_auto,q_auto:good,fl_progressive:steep/...`
+ * are used by Substack among many others. A comma split shreds one URL into
+ * several fragments, and the highest-weighted fragment is a relative scrap that
+ * silently resolves against the article's own path. The result is a page full
+ * of 404s that looks fine in code review.
+ */
+function parseSrcsetCandidates(value: string): Array<{ url: string; weight: number }> {
+  const candidates: Array<{ url: string; weight: number }> = [];
+  const isWhitespace = (char: string) => /\s/.test(char);
+  let i = 0;
+
+  while (i < value.length) {
+    while (i < value.length && (isWhitespace(value[i]!) || value[i] === ",")) i++;
+    if (i >= value.length) break;
+
+    const start = i;
+    while (i < value.length && !isWhitespace(value[i]!)) i++;
+    let url = value.slice(start, i);
+
+    // A URL may carry its own trailing commas when the descriptor is omitted.
+    let hadTrailingComma = false;
+    while (url.endsWith(",")) {
+      url = url.slice(0, -1);
+      hadTrailingComma = true;
+    }
+
+    let descriptor = "";
+    if (!hadTrailingComma) {
+      while (i < value.length && value[i] !== ",") descriptor += value[i++];
+      if (i < value.length) i++;
+    }
+
+    if (url) candidates.push({ url, weight: descriptorWeight(descriptor) });
+  }
+
+  return candidates;
+}
+
 /** Largest candidate from a srcset, by width or density descriptor. */
 function fromSrcset(value: string | null): string | null {
   if (!value) return null;
-  let best: { url: string; weight: number } | null = null;
 
-  for (const candidate of value.split(",")) {
-    const parts = candidate.trim().split(/\s+/);
-    const url = parts[0];
-    if (!url) continue;
-    const descriptor = parts[1] ?? "";
-    let weight = 1;
-    if (descriptor.endsWith("w")) weight = parseFloat(descriptor) || 1;
-    else if (descriptor.endsWith("x")) weight = (parseFloat(descriptor) || 1) * 1000;
-    if (!best || weight > best.weight) best = { url, weight };
+  let best: { url: string; weight: number } | null = null;
+  for (const candidate of parseSrcsetCandidates(value)) {
+    if (!best || candidate.weight > best.weight) best = candidate;
   }
 
   return best?.url ?? null;

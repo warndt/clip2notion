@@ -32,7 +32,8 @@ import { loadConfig, type Config } from "../../src/config";
 import { ClipError } from "../../src/errors";
 import { assertSafeUrl } from "../../src/extract";
 import { log, newClipId } from "../../src/log";
-import { getClipStatus } from "../../src/pipeline";
+import { awaitClipSettled, type ClipStatus } from "../../src/pipeline";
+import { TUNABLES } from "../../src/config";
 import { normalizePageId, secretMatches } from "../../src/request";
 
 const SERVER_NAME = "clip2notion";
@@ -95,9 +96,10 @@ const CLIP_ARTICLE_TOOL = {
     "Fetches a web article and writes its full content into an existing Notion page in the " +
     "WDB | Resources database, storing images inside Notion. The page must already exist — " +
     "create it and set its properties first. This tool only fills in the body.\n\n" +
-    "IMPORTANT: a successful response means the work STARTED, not that it finished. It runs " +
-    "in the background and can still fail afterwards. Never tell the user the article was " +
-    "clipped on the strength of this response — call clip_status to confirm first.",
+    "This tool waits for the work to finish before answering, so it usually returns the real " +
+    "outcome (CLIPPED or FAILED) directly. If it returns IN_PROGRESS the article is a long " +
+    "one — call clip_status yourself to keep waiting. Never report success on anything other " +
+    "than a CLIPPED result, and never ask the user to prompt you to check.",
   inputSchema: {
     type: "object",
     properties: {
@@ -129,9 +131,9 @@ const CLIP_STATUS_TOOL = {
   title: "Check whether a clip finished",
   description:
     "Reads a Notion page and reports whether a clip has finished, is still running, or failed. " +
-    "Use this after clip_article to confirm the outcome before telling the user anything. " +
-    "A long illustrated article can take a few minutes, so if it reports in_progress, wait and " +
-    "check again rather than assuming either outcome.",
+    "This tool WAITS for a running clip before answering, so calling it again is how you wait " +
+    "— never ask the user to prompt you to check. Keep calling it until it returns CLIPPED or " +
+    "FAILED, and report nothing to the user until then.",
   inputSchema: {
     type: "object",
     properties: {
@@ -228,18 +230,36 @@ async function handleClipArticle(
 
   log("info", clipId, "mcp_dispatched", { page_id: pageId, url });
 
+  log("info", clipId, "mcp_dispatched_waiting", { page_id: pageId });
+
+  // Wait for the work rather than handing the caller a job to chase. Most
+  // articles settle inside this window, so the common case is one tool call
+  // that returns a real answer.
+  let settled: ClipStatus;
+  try {
+    settled = await awaitClipSettled(pageId, config, clipId, TUNABLES.dispatchWaitBudgetMs);
+  } catch {
+    return toolText(
+      id,
+      `STATUS: STARTED\n\n` +
+        `The clip was started, but its progress could not be read back just now. Call ` +
+        `clip_status with page_id ${pageId} to find out what happened. Do not tell the user ` +
+        `it worked until you have.`,
+    );
+  }
+
+  if (settled.state !== "in_progress") return statusResponse(id, settled, pageId);
+
   // Rule 4: this wording must not be relayable as "clipped".
   return toolText(
     id,
-    `STATUS: STARTED\n\n` +
-      `The article is being fetched and written now. This is NOT confirmation that it ` +
-      `worked.\n\n` +
-      `Reference: ${clipId}\n\n` +
-      `The work runs in the background and can still fail. Do not tell the user the article ` +
-      `was clipped yet. Call clip_status with page_id ${pageId} to find out what actually ` +
-      `happened — pass that same page id, not this reference, which is only for logs.\n\n` +
-      `You cannot wait inside a reply. Call clip_status once now; if it reports IN_PROGRESS, ` +
-      `tell the user and ask them to say "check again" rather than claiming an outcome.`,
+    `STATUS: IN_PROGRESS\n\n` +
+      `The article is still being fetched and written. This is NOT confirmation that it ` +
+      `worked, and it is not a failure either.\n\n` +
+      `Call clip_status with page_id ${pageId} again now. That call waits for the work, so ` +
+      `simply calling it again is how you wait — do not ask the user to prompt you, and do ` +
+      `not report an outcome yet. Repeat until it returns CLIPPED or FAILED. An article with ` +
+      `many images can need two or three such calls.`,
   );
 }
 
@@ -254,9 +274,9 @@ async function handleClipStatus(
     return toolFailure(id, "The page_id is missing or is not a Notion page id.");
   }
 
-  let status;
+  let status: ClipStatus;
   try {
-    status = await getClipStatus(pageId, config, clipId);
+    status = await awaitClipSettled(pageId, config, clipId);
   } catch (err) {
     if (err instanceof ClipError && err.code === "INVALID_TARGET") {
       return toolFailure(id, "That page is not in the WDB | Resources database.");
@@ -268,8 +288,20 @@ async function handleClipStatus(
     );
   }
 
-  // The first line is a stable token to match on. The prose after it is for the
-  // model to act on, but callers shouldn't have to parse English to branch.
+  return statusResponse(id, status, pageId);
+}
+
+/**
+ * Render a settled (or still-running) status as a tool result.
+ *
+ * The first line is a stable token to match on. The prose after it is for the
+ * model to act on, but callers shouldn't have to parse English to branch.
+ */
+function statusResponse(
+  id: JsonRpcRequest["id"],
+  status: ClipStatus,
+  pageId: string,
+): Response {
   switch (status.state) {
     case "clipped":
       return toolText(
@@ -285,13 +317,13 @@ async function handleClipStatus(
       return toolText(
         id,
         `STATUS: IN_PROGRESS\n\n` +
-          `The clip has not finished, so the outcome is not yet known. Do NOT report success ` +
+          `The clip has not finished yet, so the outcome is not known. Do NOT report success ` +
           `or failure.\n\n` +
-          `You cannot wait inside a single reply. Tell the user it is still running and ask ` +
-          `them to say "check again" — the wait happens across their messages, not within your ` +
-          `turn. A long illustrated article can take a few minutes. If it is still running ` +
-          `after roughly five minutes of real time, say the run appears to have died rather ` +
-          `than guessing either way.`,
+          `Call clip_status with page_id ${pageId} again now. This tool waits for the work ` +
+          `before answering, so calling it again IS how you wait — do not ask the user to ` +
+          `prompt you. Repeat until it returns CLIPPED or FAILED. An article with many images ` +
+          `may need two or three calls. Only if it is still running after roughly ten such ` +
+          `calls should you tell the user the run appears to have died.`,
       );
 
     case "failed":
