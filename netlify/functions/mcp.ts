@@ -319,16 +319,52 @@ async function handleClipStatus(
 
 // --- Transport -------------------------------------------------------------
 
-/** Token from the connector URL, or a header if one was sent. */
-function providedToken(req: Request): string {
+/**
+ * Where the caller's token came from.
+ *
+ * A **path segment** is preferred over a query string. Query strings are the
+ * fragile part of a URL: they get dropped by normalisation, by proxies, and by
+ * anything that stores an endpoint as origin + path. A connector can then pass
+ * its settings-page connection test on the full URL and afterwards call the
+ * endpoint without the query, which reads here as an unauthenticated request.
+ *
+ * Every form is accepted so that whichever survives the trip works.
+ */
+/**
+ * Replace a token-carrying path segment before the path is logged.
+ *
+ * `/mcp/<token>` becomes `/mcp/<redacted>`. Without this, the credential ends
+ * up in the function logs verbatim — the very risk that makes a URL-borne
+ * secret weaker than a header-borne one.
+ */
+function redactPath(pathname: string): string {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length > 1 && segments[0] === "mcp") return "/mcp/<redacted>";
+  return pathname;
+}
+
+function providedToken(req: Request): { token: string; source: string } {
   const url = new URL(req.url);
+
+  // /mcp/<token>
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments.length > 1 && segments[0] === "mcp") {
+    const last = segments[segments.length - 1];
+    if (last) return { token: decodeURIComponent(last), source: "path" };
+  }
+
   const fromQuery = url.searchParams.get("token");
-  if (fromQuery) return fromQuery;
+  if (fromQuery) return { token: fromQuery, source: "query" };
 
   const auth = req.headers.get("authorization") ?? "";
-  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return { token: auth.slice(7).trim(), source: "bearer" };
+  }
 
-  return req.headers.get("x-clip-secret") ?? "";
+  const header = req.headers.get("x-clip-secret");
+  if (header) return { token: header, source: "header" };
+
+  return { token: "", source: "none" };
 }
 
 export default async function handler(req: Request): Promise<Response> {
@@ -360,8 +396,25 @@ export default async function handler(req: Request): Promise<Response> {
     return rpcError(null, -32603, "Service is misconfigured; check the environment variables.");
   }
 
-  if (!secretMatches(providedToken(req), config.sharedSecret)) {
-    log("warn", clipId, "mcp_rejected", { reason: "bad token" });
+  const { token, source } = providedToken(req);
+  const requestUrl = new URL(req.url);
+
+  // Logged on every request, accepted or not. Which credential form actually
+  // arrives is otherwise invisible, and guessing at it wastes deploys.
+  //
+  // The path is redacted before logging: when the token travels as a path
+  // segment, logging the raw path would write the secret into the function
+  // logs — which is the whole reason secrets in URLs are riskier than secrets
+  // in headers. Never log `pathname` or `search` here unredacted.
+  log("info", clipId, "mcp_request", {
+    path: redactPath(requestUrl.pathname),
+    token_source: source,
+    has_query: requestUrl.search.length > 0,
+    user_agent: req.headers.get("user-agent")?.slice(0, 80) ?? null,
+  });
+
+  if (!secretMatches(token, config.sharedSecret)) {
+    log("warn", clipId, "mcp_rejected", { reason: "bad or missing token", token_source: source });
     return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
