@@ -13,6 +13,7 @@
  */
 
 import { TUNABLES, type Config } from "./config";
+
 import { ClipError, errors, toClipError } from "./errors";
 import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
@@ -86,6 +87,38 @@ export async function getClipStatus(
   const client = new NotionClient(config, clipId);
   await client.assertPageInDataSource(pageId);
   return deriveClipStatus(await client.listChildren(pageId));
+}
+
+/**
+ * Poll until the clip settles, or the budget runs out.
+ *
+ * A tool call cannot sleep on the caller's side, and asking a person to say
+ * "check again" is not a workflow — it turns a background job into homework.
+ * Blocking here for a bounded window means a typical clip finishes inside a
+ * single tool call and the caller never has to ask for anything.
+ *
+ * The budget is deliberately short of any plausible client timeout. If the work
+ * outlives it, the caller is told to call again — which it can do by itself,
+ * without involving the user.
+ */
+export async function awaitClipSettled(
+  pageId: string,
+  config: Config,
+  clipId: string,
+  budgetMs: number = TUNABLES.statusWaitBudgetMs,
+): Promise<ClipStatus> {
+  const client = new NotionClient(config, clipId);
+  await client.assertPageInDataSource(pageId);
+
+  const deadline = Date.now() + budgetMs;
+  let status = deriveClipStatus(await client.listChildren(pageId));
+
+  while (status.state === "in_progress" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, TUNABLES.statusPollIntervalMs));
+    status = deriveClipStatus(await client.listChildren(pageId));
+  }
+
+  return status;
 }
 
 export interface ClipRequest {

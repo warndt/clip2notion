@@ -45,12 +45,11 @@ line of its response:
 - **STATUS: FAILED** — relay the message to me verbatim.
 - **STATUS: NOT_STARTED** — the page is empty. Do not report success.
 
-**You cannot wait inside a reply.** You have no way to sleep mid-turn, so on
-IN_PROGRESS do not stall or pretend to wait. Tell me it is still running and
-ask me to say "check again". The few-minutes guidance is measured across my
-messages, not within one of your replies. If it is still running after roughly
-five minutes of real elapsed time, say the run appears to have died rather than
-guessing either way.
+**On IN_PROGRESS, call `clip_status` again yourself.** Both tools wait for the
+work before answering, so calling again IS how you wait. Never ask me to say
+"check again" — chasing a background job is not my job. Keep calling until you
+get CLIPPED or FAILED. A long illustrated article may need two or three calls.
+Only after roughly ten calls should you tell me the run appears to have died.
 
 **Never retry on your own initiative.** Relay what the failure said. If the
 message indicates a retry may help, say so and let me decide — you don't start
