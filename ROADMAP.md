@@ -51,8 +51,10 @@ The intended caller is a Claude session in the claude.ai chat interface. That en
 
 The M2 clips below prove the pipeline; they do **not** prove callability, because a terminal and that sandbox have different network access.
 
-- ⬜ **Spike: minimal remote MCP server.** One trivial tool, connected from claude.ai, proving the handshake works from Anthropic's infrastructure to Netlify. Custom connectors are available on all plans, and Claude connects *from Anthropic's cloud*, not the sandbox — which is why this route sidesteps egress entirely.
-- ⬜ **The spike must also prove a structured error round-trips** — that a rejection reaches the session as something specific and actionable, not something generic. This is the entire justification for choosing MCP over the webhook fallback; if error semantics turn out mushy, the comparison needs revisiting *before* the port, not after.
+- 🟡 **Spike: minimal remote MCP server** — `netlify/functions/mcp.ts`, served at `/mcp`. One diagnostic tool, `clip_probe`. Self-contained: imports nothing from `src/`, touches nothing in the clip path, so deleting the file leaves the service unchanged. Goes straight to `main` — there are no branch deploys configured and nothing in production to protect.
+- 🟡 **`clip_probe` exists to test the failure channels, not the happy path.** Four modes: `ok`, `tool_error` (a normal result flagged `isError` — how a paywall or wrong page id would surface), `protocol_error` (a JSON-RPC error object), and `thrown` (unhandled server exception). All four verified locally.
+- ⬜ **Success criterion: a rejection reaches the session as something specific and actionable.** Not just that the handshake connects. This is the entire justification for choosing MCP over the webhook fallback; if a failure arrives vague, the comparison needs revisiting *before* the port, not after. The open question the spike answers: does `isError` text reach the model usefully, and does a JSON-RPC error reach it at all?
+- ⬜ Delete `mcp.ts` and its `/mcp` redirect once the answer is recorded, whichever way it goes.
 - ⬜ If the spike passes: port `runClip` behind the MCP entry point. Mechanical — the pipeline is unchanged.
 - ⬜ Rewrite `CALLER-PROMPT.md` (currently marked superseded; do not paste it anywhere)
 
@@ -84,11 +86,24 @@ Three real clips, from a terminal. All four of the testable must-be-right items 
 
 Re-POSTing a *completed* clip is the easy half. The state the design actually protects against is **content written → run died → Netlify retry arrives**, which no amount of clipping produces naturally.
 
-- ⬜ Inject a temporary throw after the first append batch, on a **preview deploy only**, and confirm the retry finds the clip header and stops.
-- ⬜ **The fault injection must be removed and its removal verified before anything merges.** A leftover fault line is its own hazard and is exactly the kind of thing that survives a rebase unnoticed. Ideally it never lands on a branch that can be merged.
+- ⬜ Inject a temporary throw after the first append batch and confirm the retry finds the clip header and stops.
+- ⬜ **Run it locally under `netlify dev`, never deployed.** `netlify dev` injects the linked site's environment variables, so the pipeline runs against real Notion with real credentials while the fault stays in the working tree. Nothing to deploy, therefore nothing to forget to remove — a stronger guarantee than a preview deploy, which still has to be torn down.
+- ⬜ **The fault injection must not reach `main` under any circumstances.** Unlike the MCP spike, which is additive, this one deliberately breaks the clip path — it is the single change that would make the live service destructive. A leftover fault line is exactly the kind of thing that survives a rebase unnoticed.
 
 This is worth going out of the way for: it is the one failure that surfaces weeks later as duplicated article content, on a page nobody is watching.
-- ⬜ Clip twenty real articles across the spread: long-form magazine, technical posts with code, image-heavy listicles, at least one paywalled
+### Coverage, not a count
+
+The brief said "clip twenty real articles." The evidence argues for coverage instead: three clips have produced two real bugs, and both came from **variety** rather than volume — a site that redirects via a meta-refresh stub, and a site that puts code languages in a sibling element. Twenty articles from similar sources would teach less than five deliberately different ones.
+
+And once M3 lands, these stop being tests. Clipping is just using the tool, so the remaining work is "use it on things you actually want to keep, and report what breaks" — no manufactured test pages cluttering Resources.
+
+- ✅ Image-heavy — NASA Hubble Science (6 images, all stored)
+- ✅ Technical post with code blocks and tables — MDN Cache-Control
+- ✅ Paywalled — NYT
+- ⬜ Long-form magazine piece, including a paragraph over 2000 characters
+- ⬜ A site with lazy-loaded images (`data-src` / `srcset` placeholders) — verified in fixtures, never against a live lazy-loading site
+- ⬜ Then: ordinary use, reporting what breaks
+
 - ⬜ Log what breaks in the Backlog below; fix what actually breaks, not what might
 
 **Done when:** Wil clips an article end to end from Claude with the browser extension uninstalled.
