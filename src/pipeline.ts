@@ -18,9 +18,75 @@ import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
   clipHeader, collectImageBlocks, errorCallout, htmlToBlocks, statusCallout,
-  ERROR_MARKER, STATUS_MARKER, type Block,
+  ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER, type Block,
 } from "./blocks";
-import { blockLinksTo, blockPlainText, NotionClient, type NotionBlockRecord } from "./notion";
+import {
+  blockFirstLink, blockLinksTo, blockPlainText, NotionClient, type NotionBlockRecord,
+} from "./notion";
+
+// --- Status ----------------------------------------------------------------
+
+export type ClipState = "not_started" | "in_progress" | "clipped" | "failed";
+
+export interface ClipStatus {
+  state: ClipState;
+  detail?: string;
+  sourceUrl?: string;
+}
+
+/**
+ * Work out what state a page is in from its blocks.
+ *
+ * This exists because a caller cannot tell whether a clip worked from the
+ * dispatch response — the work outlives the request. Reading the page gives a
+ * definite answer instead of one inferred from wording.
+ *
+ * Order matters. A run that failed partway leaves *both* partial content and an
+ * error callout, and that is a failure, not a success with extra decoration.
+ */
+export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
+  // Named `failure` rather than `errorCallout` — that name is already the
+  // imported block builder, and shadowing it here would be a trap.
+  const failure = children.find(
+    (block) => block.type === "callout" && blockPlainText(block).includes(ERROR_MARKER),
+  );
+  if (failure) {
+    return { state: "failed", detail: blockPlainText(failure) };
+  }
+
+  const running = children.find(
+    (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
+  );
+  if (running) {
+    return { state: "in_progress", detail: blockPlainText(running) };
+  }
+
+  const header = children.find(
+    (block) =>
+      block.type === "paragraph" &&
+      blockPlainText(block).startsWith(HEADER_PREFIX) &&
+      blockFirstLink(block) !== null,
+  );
+  if (header) {
+    return {
+      state: "clipped",
+      detail: blockPlainText(header),
+      sourceUrl: blockFirstLink(header) ?? undefined,
+    };
+  }
+
+  return { state: "not_started" };
+}
+
+export async function getClipStatus(
+  pageId: string,
+  config: Config,
+  clipId: string,
+): Promise<ClipStatus> {
+  const client = new NotionClient(config, clipId);
+  await client.assertPageInDataSource(pageId);
+  return deriveClipStatus(await client.listChildren(pageId));
+}
 
 export interface ClipRequest {
   pageId: string;

@@ -54,7 +54,10 @@ The M2 clips below prove the pipeline; they do **not** prove callability, becaus
 - 🟡 **Spike: minimal remote MCP server** — `netlify/functions/mcp.ts`, served at `/mcp`. One diagnostic tool, `clip_probe`. Self-contained: imports nothing from `src/`, touches nothing in the clip path, so deleting the file leaves the service unchanged. Goes straight to `main` — there are no branch deploys configured and nothing in production to protect.
 - 🟡 **`clip_probe` exists to test the failure channels, not the happy path.** Four modes: `ok`, `tool_error` (a normal result flagged `isError` — how a paywall or wrong page id would surface), `protocol_error` (a JSON-RPC error object), and `thrown` (unhandled server exception). All four verified locally.
 - ✅ **Success criterion met: rejections reach the session specific and actionable.** Verdict: **port to MCP.** Observed from a real claude.ai session, 2026-08-13.
-- ⬜ Delete `mcp.ts` and its `/mcp` redirect once the port lands.
+- 🟡 **Ported.** `netlify/functions/mcp.ts` now serves `clip_article` and `clip_status`, authenticated by a token in the connector URL. The probe is gone; the pipeline is unchanged behind it.
+- 🟡 `src/pipeline.ts` gains `deriveClipStatus` (pure, tested) and `getClipStatus`.
+- 🟡 `CALLER-PROMPT.md` rewritten around the two tools and the dispatch-then-confirm loop.
+- ⬜ Deploy and re-point the connector at `/mcp?token=…`, then run a real clip end to end from a chat session.
 
 ### Spike results — how each failure channel actually behaves
 

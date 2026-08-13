@@ -226,6 +226,18 @@ export function blockPlainText(block: NotionBlockRecord): string {
   return items.map((item) => item.text?.content ?? "").join("");
 }
 
+/** First link URL in a block's rich text, if any. */
+export function blockFirstLink(block: NotionBlockRecord): string | null {
+  const payload = block[block.type] as { rich_text?: RichText[] } | undefined;
+  const items = payload?.rich_text;
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const url = item.text?.link?.url;
+    if (url) return url;
+  }
+  return null;
+}
+
 /** Whether a block contains a link to this exact URL — the idempotency check. */
 export function blockLinksTo(block: NotionBlockRecord, url: string): boolean {
   const payload = block[block.type] as { rich_text?: RichText[] } | undefined;
