@@ -43,6 +43,8 @@ The whole service, in one pass. Awaiting review.
 
 ## M3 — Make the service callable by its actual client ⬜
 
+> **Numbered M3 because it was discovered third, but placed here because it blocks M2.** There is no point clipping twenty articles from a terminal when the real caller can't clip one. Do this before finishing M2 below.
+
 **Blocking.** The pipeline works; the door only opens from environments the real caller doesn't have.
 
 The intended caller is a Claude session in the claude.ai chat interface. That environment **cannot POST to `<your-site>.netlify.app`** — its sandbox refuses non-allowlisted hosts at the egress proxy (`x-deny-reason: host_not_allowed`), and its fetch tool is GET-only and cannot set an `X-Clip-Secret` header. Verified directly on 2026-08-12, not assumed.
