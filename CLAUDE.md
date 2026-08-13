@@ -46,8 +46,10 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │
 ├── netlify/
 │   └── functions/
-│       ├── clip.ts                 # The caller's endpoint. Validates synchronously,
-│       │                           #   returns a real status code, dispatches the work
+│       ├── mcp.ts                  # ← how the real caller reaches this service.
+│       │                           #   MCP connector: clip_article + clip_status
+│       ├── clip.ts                 # HTTP endpoint. Validates synchronously, returns a
+│       │                           #   real status code. Used from a terminal for testing
 │       └── clip-background.ts      # The worker. 15 minutes, always answers 202
 │
 ├── src/
@@ -151,9 +153,25 @@ These bound any implementation. Several of them fail late and silently in produc
 
 ## Data Formats
 
-### Request
+### The MCP connector ← **this is how the real caller reaches the service**
 
-`POST /.netlify/functions/clip` ← **callers use this one**
+`POST /mcp?token=<CLIP_SHARED_SECRET>` speaking JSON-RPC. Two tools:
+
+- `clip_article(page_id, url, force?)` — validates, verifies the page's parent, dispatches. **Returns on dispatch, not on completion.**
+- `clip_status(page_id)` — reads the page and reports `CLIPPED` / `STILL RUNNING` / `CLIP FAILED` / `NOTHING CLIPPED`.
+
+**Four rules, learned from the spike and binding on any change to `mcp.ts`:**
+
+1. **Every user-facing failure is a tool result with `isError`, never a JSON-RPC error.** Protocol errors are for malformed calls only.
+2. **Nothing may throw out of a tool handler.** A `-32603` is replaced en route with a generic *"the server isn't responding, you can try again"* — wrong for a paywall, and it invites an endless retry against a deterministic failure.
+3. **Failure prose must be unmistakable in the words themselves.** `isError` does *not* reach the model as a machine-readable field; only the harness's wrapper and our text arrive. Hence the leading `CLIP FAILED —` markers. Never phrase a failure like an acceptance.
+4. **Dispatch is not a write.** `clip_article` succeeding means the work *started*. Anything stronger invites the caller to report a clip that never happened — the confidently-wrong-answer failure arriving through the success path. That is what `clip_status` exists for.
+
+The connector URL carries the secret, so it stays out of pasted project prompts. Rotating it means updating Netlify, redeploying, **and** the connector URL.
+
+### HTTP request (testing)
+
+`POST /.netlify/functions/clip` — kept for terminal use and testing
 
 ```
 X-Clip-Secret: <CLIP_SHARED_SECRET>
