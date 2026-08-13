@@ -15,14 +15,50 @@ export function secretMatches(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** Accepts a Notion page id with or without dashes; returns the dashed form. */
-export function normalizePageId(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const hex = raw.trim().replace(/-/g, "").toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(hex)) return null;
+const UUID_PATTERN = /[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/gi;
+
+function dashed(hex: string): string {
   return [
     hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20),
   ].join("-");
+}
+
+/**
+ * Accepts a Notion page id with or without dashes, **or a Notion page URL**.
+ * Returns the dashed form.
+ *
+ * URLs are accepted because that is what a caller has to hand — the MCP tools
+ * and the Notion connector both surface page URLs, and requiring the caller to
+ * strip one down to a bare id is a pointless way to fail.
+ *
+ * The query string is dropped before searching, because a Notion URL can carry
+ * a *view* id in `?v=…` that also looks like a uuid. Taking the last match from
+ * the path avoids grabbing it.
+ */
+export function normalizePageId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const looksLikeUrl = /^https?:\/\//i.test(trimmed);
+
+  if (!looksLikeUrl) {
+    const hex = trimmed.replace(/-/g, "").toLowerCase();
+    return /^[0-9a-f]{32}$/.test(hex) ? dashed(hex) : null;
+  }
+
+  let path: string;
+  try {
+    path = new URL(trimmed).pathname;
+  } catch {
+    return null;
+  }
+
+  const matches = path.match(UUID_PATTERN);
+  if (!matches || matches.length === 0) return null;
+
+  const hex = matches[matches.length - 1]!.replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{32}$/.test(hex) ? dashed(hex) : null;
 }
 
 export interface ParsedRequest {

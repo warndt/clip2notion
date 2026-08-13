@@ -99,11 +99,15 @@ const CLIP_ARTICLE_TOOL = {
     properties: {
       page_id: {
         type: "string",
-        description: "Notion page id, with or without dashes. Must already exist in Resources.",
+        description:
+          "Notion page id, with or without dashes, or a full Notion page URL. The page must " +
+          "already exist in the WDB | Resources database.",
       },
       url: {
         type: "string",
-        description: "Absolute http(s) URL of the article to clip.",
+        description:
+          "Absolute http(s) URL of the article to clip. This argument is the only source of " +
+          "the URL — the service never reads the page's own URL property.",
       },
       force: {
         type: "boolean",
@@ -129,7 +133,10 @@ const CLIP_STATUS_TOOL = {
     properties: {
       page_id: {
         type: "string",
-        description: "Notion page id, with or without dashes.",
+        description:
+          "Notion page id, with or without dashes, or a full Notion page URL. This is the " +
+          "same page id passed to clip_article — there is no separate job id to keep hold of, " +
+          "because status is read from the page itself.",
       },
     },
     required: ["page_id"],
@@ -220,13 +227,15 @@ async function handleClipArticle(
   // Rule 4: this wording must not be relayable as "clipped".
   return toolText(
     id,
-    `STARTED — the article is being fetched and written now. This is NOT confirmation that ` +
-      `it worked.\n\n` +
+    `STATUS: STARTED\n\n` +
+      `The article is being fetched and written now. This is NOT confirmation that it ` +
+      `worked.\n\n` +
       `Reference: ${clipId}\n\n` +
       `The work runs in the background and can still fail. Do not tell the user the article ` +
-      `was clipped yet. Wait about 30 seconds, then call clip_status with page_id ` +
-      `${pageId} to find out what actually happened. A long article with many images may ` +
-      `take a few minutes, in which case check again rather than assuming.`,
+      `was clipped yet. Call clip_status with page_id ${pageId} to find out what actually ` +
+      `happened — pass that same page id, not this reference, which is only for logs.\n\n` +
+      `You cannot wait inside a reply. Call clip_status once now; if it reports IN_PROGRESS, ` +
+      `tell the user and ask them to say "check again" rather than claiming an outcome.`,
   );
 }
 
@@ -255,11 +264,14 @@ async function handleClipStatus(
     );
   }
 
+  // The first line is a stable token to match on. The prose after it is for the
+  // model to act on, but callers shouldn't have to parse English to branch.
   switch (status.state) {
     case "clipped":
       return toolText(
         id,
-        `CLIPPED — the article is on the page in full, with its images stored in Notion.\n\n` +
+        `STATUS: CLIPPED\n\n` +
+          `The article is on the page in full, with its images stored in Notion.\n` +
           `Source: ${status.sourceUrl ?? "(link present)"}\n\n` +
           `This is a confirmed result: the page was read and the article is there. It is safe ` +
           `to tell the user the clip succeeded.`,
@@ -268,19 +280,26 @@ async function handleClipStatus(
     case "in_progress":
       return toolText(
         id,
-        `STILL RUNNING — the clip has not finished, so the outcome is not yet known.\n\n` +
-          `Do NOT report success or failure. Wait longer and check again. A long illustrated ` +
-          `article can take a few minutes. If it is still running after about five minutes, ` +
-          `the run has probably died — say that rather than guessing either way.`,
+        `STATUS: IN_PROGRESS\n\n` +
+          `The clip has not finished, so the outcome is not yet known. Do NOT report success ` +
+          `or failure.\n\n` +
+          `You cannot wait inside a single reply. Tell the user it is still running and ask ` +
+          `them to say "check again" — the wait happens across their messages, not within your ` +
+          `turn. A long illustrated article can take a few minutes. If it is still running ` +
+          `after roughly five minutes of real time, say the run appears to have died rather ` +
+          `than guessing either way.`,
       );
 
     case "failed":
       return toolText(
         id,
-        `CLIP FAILED — the page carries an error. Relay this to the user:\n\n` +
+        `STATUS: FAILED\n\n` +
+          `CLIP FAILED — the page carries an error. Relay this to the user:\n\n` +
           `${status.detail ?? "(no detail recorded)"}\n\n` +
-          `Any content already on the page is partial. Do not retry automatically; the message ` +
-          `above says whether retrying would help.`,
+          `Any content already on the page is partial. Do not retry on your own initiative. ` +
+          `If the message says a retry may help, tell the user that and let them decide.\n\n` +
+          `This error stays on the page until someone removes it, so it will not decay into ` +
+          `NOT_STARTED later.`,
         true,
       );
 
@@ -288,9 +307,11 @@ async function handleClipStatus(
     default:
       return toolText(
         id,
-        `NOTHING CLIPPED — the page has no article, no progress marker, and no error.\n\n` +
+        `STATUS: NOT_STARTED\n\n` +
+          `NOTHING CLIPPED — the page has no article, no progress marker, and no error.\n\n` +
           `Either clip_article was never called for this page, or it was rejected before it ` +
-          `wrote anything. Do not tell the user it was clipped.`,
+          `wrote anything. This is not an expired result: status is read from the page itself, ` +
+          `so a failure would still be showing. Do not tell the user it was clipped.`,
         true,
       );
   }
