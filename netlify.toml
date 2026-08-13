@@ -11,6 +11,13 @@
   # esbuild cannot bundle. Netlify installs it into the function zip instead.
   external_node_modules = ["jsdom"]
 
+# SPIKE — clean URL for the MCP connector experiment. Remove with mcp.ts.
+[[redirects]]
+  from = "/mcp"
+  to = "/.netlify/functions/mcp"
+  status = 200
+  force = true
+
 # Block internal project files from public access
 # force = true is required to override actual files on disk
 [[redirects]]
