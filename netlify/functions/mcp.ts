@@ -56,10 +56,14 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Expose-Headers": "Mcp-Session-Id, MCP-Protocol-Version",
 };
 
-function rpcResult(id: JsonRpcRequest["id"], result: unknown): Response {
+function rpcResult(
+  id: JsonRpcRequest["id"],
+  result: unknown,
+  extraHeaders: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), {
     status: 200,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS, ...extraHeaders },
   });
 }
 
@@ -399,18 +403,32 @@ export default async function handler(req: Request): Promise<Response> {
   const { token, source } = providedToken(req);
   const requestUrl = new URL(req.url);
 
-  // Logged on every request, accepted or not. Which credential form actually
-  // arrives is otherwise invisible, and guessing at it wastes deploys.
+  // The body is parsed before the auth check purely so the JSON-RPC method can
+  // be logged. Knowing that a client connected but not what it asked for is the
+  // difference between diagnosing this and guessing at it.
+  let body: JsonRpcRequest | null = null;
+  let parseFailed = false;
+  try {
+    body = (await req.json()) as JsonRpcRequest;
+  } catch {
+    parseFailed = true;
+  }
+
+  // Logged on every request, accepted or not.
   //
-  // The path is redacted before logging: when the token travels as a path
-  // segment, logging the raw path would write the secret into the function
-  // logs — which is the whole reason secrets in URLs are riskier than secrets
-  // in headers. Never log `pathname` or `search` here unredacted.
+  // The path is redacted first: when the token travels as a path segment,
+  // logging the raw path would write the secret into the function logs — the
+  // whole reason a URL-borne secret is riskier than a header-borne one. Never
+  // log `pathname` or `search` here unredacted.
   log("info", clipId, "mcp_request", {
+    method: body?.method ?? (parseFailed ? "<unparseable>" : "<none>"),
     path: redactPath(requestUrl.pathname),
     token_source: source,
     has_query: requestUrl.search.length > 0,
-    user_agent: req.headers.get("user-agent")?.slice(0, 80) ?? null,
+    accept: req.headers.get("accept")?.slice(0, 60) ?? null,
+    protocol_header: req.headers.get("mcp-protocol-version"),
+    session_sent: req.headers.get("mcp-session-id") ? "yes" : "no",
+    user_agent: req.headers.get("user-agent")?.slice(0, 40) ?? null,
   });
 
   if (!secretMatches(token, config.sharedSecret)) {
@@ -418,10 +436,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
-  let body: JsonRpcRequest;
-  try {
-    body = (await req.json()) as JsonRpcRequest;
-  } catch {
+  if (parseFailed || !body) {
     return rpcError(null, -32700, "Parse error: body is not valid JSON.");
   }
 
@@ -431,17 +446,25 @@ export default async function handler(req: Request): Promise<Response> {
     switch (body.method) {
       case "initialize": {
         const asked = String(body.params?.["protocolVersion"] ?? "");
-        return rpcResult(id, {
-          protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(asked)
-            ? asked
-            : PREFERRED_PROTOCOL_VERSION,
-          capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-          instructions:
-            "Writes article content into existing Notion pages in WDB | Resources. Create the " +
-            "page and set its properties first, then call clip_article. clip_article only " +
-            "starts the work — always confirm with clip_status before telling the user anything.",
-        });
+        return rpcResult(
+          id,
+          {
+            protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(asked)
+              ? asked
+              : PREFERRED_PROTOCOL_VERSION,
+            capabilities: { tools: { listChanged: false } },
+            serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+            instructions:
+              "Writes article content into existing Notion pages in WDB | Resources. Create " +
+              "the page and set its properties first, then call clip_article. clip_article " +
+              "only starts the work — always confirm with clip_status before telling the user " +
+              "anything.",
+          },
+          // The server is stateless, so this is cosmetic on our side — but a
+          // client that expects a session id and gets none may treat every
+          // request as a fresh session and keep reinitialising.
+          { "Mcp-Session-Id": clipId },
+        );
       }
 
       case "notifications/initialized":
