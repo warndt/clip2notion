@@ -53,8 +53,35 @@ The M2 clips below prove the pipeline; they do **not** prove callability, becaus
 
 - 🟡 **Spike: minimal remote MCP server** — `netlify/functions/mcp.ts`, served at `/mcp`. One diagnostic tool, `clip_probe`. Self-contained: imports nothing from `src/`, touches nothing in the clip path, so deleting the file leaves the service unchanged. Goes straight to `main` — there are no branch deploys configured and nothing in production to protect.
 - 🟡 **`clip_probe` exists to test the failure channels, not the happy path.** Four modes: `ok`, `tool_error` (a normal result flagged `isError` — how a paywall or wrong page id would surface), `protocol_error` (a JSON-RPC error object), and `thrown` (unhandled server exception). All four verified locally.
-- ⬜ **Success criterion: a rejection reaches the session as something specific and actionable.** Not just that the handshake connects. This is the entire justification for choosing MCP over the webhook fallback; if a failure arrives vague, the comparison needs revisiting *before* the port, not after. The open question the spike answers: does `isError` text reach the model usefully, and does a JSON-RPC error reach it at all?
-- ⬜ Delete `mcp.ts` and its `/mcp` redirect once the answer is recorded, whichever way it goes.
+- ✅ **Success criterion met: rejections reach the session specific and actionable.** Verdict: **port to MCP.** Observed from a real claude.ai session, 2026-08-13.
+- ⬜ Delete `mcp.ts` and its `/mcp` redirect once the port lands.
+
+### Spike results — how each failure channel actually behaves
+
+| Channel | What reached the session |
+|---|---|
+| Tool result (`isError`) | **Full text, intact.** Cause, consequence, and remedy all survived. Best behaved by a wide margin. |
+| JSON-RPC `-32602` | Code and message survived. **`data` arrived as `null` despite being sent** — that field is dropped in transit and cannot be relied on. |
+| JSON-RPC `-32603` | **Replaced** with a generic "the connector's server isn't responding, you can try again". The server's own message never arrived. |
+| Unhandled exception | Same generic substitution. Nothing useful reached the caller. |
+
+**Four design rules follow, and they are binding on the port:**
+
+1. **Every user-facing failure goes through a tool result with `isError`, never a protocol error.** Protocol errors are for malformed calls only.
+2. **Never let an exception escape the tool handler.** `-32603` is substituted with "you can try again" — advice that is wrong for a paywall and invites an endless retry loop. Catch everything and convert it to a tool result with real text.
+3. **Failure prose must be unmistakable at the level of the words.** The `isError` flag does **not** reach the model as a distinct machine-readable field — what arrives is the harness's `<error>` wrapper plus our wording. The spike's text read as a failure because it was *written* as one. Lead every failure with an explicit marker; never let a failure be phrased like an acceptance.
+4. **Do not let success-of-dispatch read as success-of-write.** See below.
+
+### The sharper hazard: dispatch is not a write
+
+The spike's success text said "accepted, verify the page shortly". A session relaying that to a user as "clipped it" has overstated what it was told — **with no error involved anywhere**. That is the confidently-wrong-answer failure this project exists to prevent, arriving through the success path rather than a failure path.
+
+Returning only after the write confirms is not available: a long illustrated article takes minutes and a tool call cannot wait that long. So the fix is a second tool.
+
+- ⬜ **Add `clip_status(page_id)`** returning a definite state — `not_started` / `in_progress` / `clipped` / `failed` with the reason. It reads the page the same way the idempotency check already does, so the logic exists.
+- ⬜ `clip_article` returns dispatch wording that cannot be mistaken for completion, and instructs the caller to confirm with `clip_status`.
+
+This turns "did it work" into something the session can *check* rather than *infer from prose*, which is a better guarantee than any wording discipline.
 - ⬜ If the spike passes: port `runClip` behind the MCP entry point. Mechanical — the pipeline is unchanged.
 - ⬜ Rewrite `CALLER-PROMPT.md` (currently marked superseded; do not paste it anywhere)
 
