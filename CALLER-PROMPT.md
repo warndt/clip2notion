@@ -33,19 +33,25 @@ content yourself — that is what the service is for.
 It means the work began. It runs in the background and can still fail after
 that response. Never tell me the article was clipped on the strength of it.
 
-Always confirm with `clip_status` before reporting anything:
+Always confirm with `clip_status` before reporting anything. Match on the first
+line of its response:
 
-- **CLIPPED** — confirmed on the page. Safe to tell me it worked.
-- **STILL RUNNING** — outcome unknown. Wait and check again. A long illustrated
-  article can take a few minutes. If it is still running after about five
-  minutes, say the run appears to have died — don't guess either way.
-- **CLIP FAILED** — relay the message to me verbatim. It says what went wrong
-  and whether retrying would help.
-- **NOTHING CLIPPED** — the page is empty. Do not report success.
+- **STATUS: CLIPPED** — confirmed on the page. Safe to tell me it worked.
+- **STATUS: IN_PROGRESS** — outcome unknown. See the note on waiting below.
+- **STATUS: FAILED** — relay the message to me verbatim.
+- **STATUS: NOT_STARTED** — the page is empty. Do not report success.
 
-If a tool reports a failure, tell me what it said rather than retrying. Most
-failures — a paywall, a page outside Resources, a bad URL — do not change on a
-retry, and the message says so when that's the case.
+**You cannot wait inside a reply.** You have no way to sleep mid-turn, so on
+IN_PROGRESS do not stall or pretend to wait. Tell me it is still running and
+ask me to say "check again". The few-minutes guidance is measured across my
+messages, not within one of your replies. If it is still running after roughly
+five minutes of real elapsed time, say the run appears to have died rather than
+guessing either way.
+
+**Never retry on your own initiative.** Relay what the failure said. If the
+message indicates a retry may help, say so and let me decide — you don't start
+one yourself. Most failures (a paywall, a page outside Resources, a bad URL) do
+not change on a retry, and the message says so when that's the case.
 
 Only pass `force: true` when re-clipping a page that already has a clip on it.
 It deletes the existing clip first. Never on a first attempt.
@@ -54,6 +60,65 @@ Paywalled and login-walled articles are out of scope by design; the service
 cannot log in to anything. Use the Notion Web Clipper browser extension for
 those.
 ```
+
+## The contract
+
+### `clip_article(page_id, url, force?)`
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `page_id` | string | yes | Dashed or undashed id, **or a full Notion page URL**. Dashes don't matter. A `?v=` view id in a URL is ignored. |
+| `url` | string | yes | Absolute `http(s)` article URL. |
+| `force` | boolean | no | Only literal `true` counts. Deletes the existing clip first. |
+
+### `clip_status(page_id)`
+
+Takes **the page id — there is no job id.** Status is derived from the page's own blocks, so there is nothing to carry across turns and nothing to lose if the conversation restarts.
+
+### Status values
+
+The **first line** of the response text is a stable token:
+
+```
+STATUS: STARTED      (clip_article only — dispatch, not completion)
+STATUS: CLIPPED
+STATUS: IN_PROGRESS
+STATUS: FAILED
+STATUS: NOT_STARTED
+```
+
+Match on that line rather than on the prose after it. `isError` is also set on failures, but the spike found it does **not** arrive as a machine-readable field, so don't depend on it.
+
+### Retention — results never expire
+
+Status is read from the page, not from a job store. A `FAILED` result is an error callout sitting on the page, and it stays there until someone deletes it. **`FAILED` never decays into `NOT_STARTED`**, so the two remain distinguishable indefinitely.
+
+### Existing content, `force: false`
+
+The guard is per-URL, not per-page:
+
+- The page already has a clip of **the same URL** → the run stops and writes nothing. No duplicate. `clip_status` reports `CLIPPED`.
+- The page has other content but no clip of that URL → the article is **appended**. "Has content" is not the same as "already clipped this URL".
+
+### Paywalls
+
+Detected and failed, not clipped as a preview. Verified live: a paywalled NYT article returns HTTP 403 and is classified `BLOCKED` before anything is written.
+
+**Residual risk, stated honestly:** detection is heuristic. A soft paywall that serves a long teaser with no recognisable subscribe wording could be extracted and reported as `CLIPPED`. If you see a clip that stops abruptly mid-article, that is the case to suspect.
+
+### The URL comes only from the argument
+
+The service never reads the page's `userDefined:URL` property — it doesn't touch properties at all, by design. If the argument and the property disagree, the argument wins and the property is left untouched. Keeping them in step is the caller's job.
+
+### Target verification
+
+Confirmed against data source `<your-data-source-id>`. `RESOURCES_DATA_SOURCE_ID` is unset in Netlify, so the code default applies, and it matches the live WDB | Resources data source.
+
+### Known gap: the template race
+
+Notion applies page templates asynchronously, so a page created from a template is briefly blank. The service does **not** tolerate this — it appends to the end of the page, so template content landing mid-clip interleaves with the article.
+
+**The caller must wait until the template body has landed before calling `clip_article`.** Fetch the page and confirm it has its template content first. In the ROADMAP backlog.
 
 ## Why it is shaped this way
 

@@ -86,6 +86,37 @@ test("bad page ids are refused", () => {
   }
 });
 
+test("a full Notion page URL is accepted", () => {
+  const expected = "4a1c2d3e-5678-4f90-ab12-cd34ef567890";
+
+  // The forms a caller actually has to hand.
+  assert.equal(normalizePageId("https://app.notion.com/p/4a1c2d3e56784f90ab12cd34ef567890"), expected);
+  assert.equal(
+    normalizePageId("https://www.notion.so/Cache-Control-header-4a1c2d3e56784f90ab12cd34ef567890"),
+    expected,
+  );
+  assert.equal(
+    normalizePageId("https://notion.so/workspace/4a1c2d3e-5678-4f90-ab12-cd34ef567890"),
+    expected,
+  );
+});
+
+test("a view id in the query string is not mistaken for the page id", () => {
+  // Notion URLs carry ?v=<uuid> for database views. Taking the last uuid in the
+  // whole string would grab that instead of the page.
+  assert.equal(
+    normalizePageId(
+      "https://app.notion.com/p/4a1c2d3e56784f90ab12cd34ef567890?v=ffffffffffffffffffffffffffffffff&pvs=204",
+    ),
+    "4a1c2d3e-5678-4f90-ab12-cd34ef567890",
+  );
+});
+
+test("a URL with no page id in it is refused", () => {
+  assert.equal(normalizePageId("https://app.notion.com/p/not-a-page"), null);
+  assert.equal(normalizePageId("https://example.com/article"), null);
+});
+
 test("force defaults to false and is only true when explicitly true", () => {
   const base = { page_id: "2f1b8c4e12344abc8def0123456789ab", url: "https://example.com/a" };
 

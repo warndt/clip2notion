@@ -156,6 +156,12 @@ All 30 code blocks in the MDN clip came out as `plain text`, and the language na
 
 One root cause, two symptoms. Fix: when converting a `<pre>`, check the preceding sibling (and the wrapper's first child) for a short text node matching a known language; if it matches, use it as the language *and* suppress the paragraph. Not urgent — no content is lost, code is intact and correctly formatted, it's just unlabelled with a stray word above it. But it will affect every clip from any site using this common markup pattern.
 
+**The template race — found in caller review, not yet handled:**
+
+Notion applies page templates asynchronously, so a page created from a template is blank for a moment. The service appends to the end of the page, so if the template body lands mid-clip, template content and article content interleave.
+
+Currently the caller must wait and confirm the template body has landed before calling `clip_article`. That is a real burden pushed onto the caller. Options if it bites: have `clip_article` poll briefly for a settled page before its first write, or accept a `wait_for_content` flag. Not urgent — the Resources templates in use are small and land fast — but it will produce a scrambled page when it does happen, and a scrambled page reads as a bad clip rather than as a race.
+
 **Known limitations, shipped deliberately:**
 
 - **`force: true` removes notes added below a clip.** The clip's range is "header to end of page", because the service only ever appends. Anything above the header is untouched. Bounding the range exactly would need a footer marker block on every clip — a permanent visible artifact solving a problem that hasn't happened yet. Revisit if it does.
