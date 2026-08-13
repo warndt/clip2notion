@@ -29,6 +29,10 @@ After creating a page in WDB | Resources and setting its properties, call
 `clip_article` with the page id and the article URL. You never write article
 content yourself — that is what the service is for.
 
+A newly created Resources page has a blank body. Every template in that database
+sets properties only and seeds no content, so blank is the expected state, not a
+page still loading. Clip into it — do not wait for content to appear.
+
 **`clip_article` starting successfully does NOT mean the article was clipped.**
 It means the work began. It runs in the background and can still fail after
 that response. Never tell me the article was clipped on the strength of it.
@@ -114,11 +118,15 @@ The service never reads the page's `userDefined:URL` property — it doesn't tou
 
 Confirmed against data source `<your-data-source-id>`. `RESOURCES_DATA_SOURCE_ID` is unset in Netlify, so the code default applies, and it matches the live WDB | Resources data source.
 
-### Known gap: the template race
+### Templates: a blank new page is normal — clip into it
 
-Notion applies page templates asynchronously, so a page created from a template is briefly blank. The service does **not** tolerate this — it appends to the end of the page, so template content landing mid-clip interleaves with the article.
+**Every template in WDB | Resources has a blank body.** Verified 2026-08-13: the default `(New article to read)` and the named ones like `(Architecture clipping)` all preset *properties* — Status, Areas, Tags — and none seed body content.
 
-**The caller must wait until the template body has landed before calling `clip_article`.** Fetch the page and confirm it has its template content first. In the ROADMAP backlog.
+So a newly created page being empty is the expected steady state, not a page still loading. **Do not wait for content to appear before clipping.**
+
+An earlier version of this document told the caller to wait until the template body had landed. That was wrong and caused a real deadlock in testing: a caller correctly followed it, fetched a blank page, and stopped — waiting for content that was never coming. The instruction was also unfalsifiable, because a blank page looks the same whether a template is still landing or has nothing to land.
+
+The underlying race is real but narrow: the service appends to the end of a page, so if a template body ever did arrive mid-clip it would interleave. That cannot currently happen with these templates. If body-bearing templates are added to Resources later, this needs revisiting — see the ROADMAP backlog.
 
 ## Why it is shaped this way
 

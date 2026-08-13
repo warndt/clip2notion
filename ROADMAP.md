@@ -156,11 +156,24 @@ All 30 code blocks in the MDN clip came out as `plain text`, and the language na
 
 One root cause, two symptoms. Fix: when converting a `<pre>`, check the preceding sibling (and the wrapper's first child) for a short text node matching a known language; if it matches, use it as the language *and* suppress the paragraph. Not urgent — no content is lost, code is intact and correctly formatted, it's just unlabelled with a stray word above it. But it will affect every clip from any site using this common markup pattern.
 
-**The template race — found in caller review, not yet handled:**
+**The template race — raised in caller review, then disproved by testing. Resolved.**
 
-Notion applies page templates asynchronously, so a page created from a template is blank for a moment. The service appends to the end of the page, so if the template body lands mid-clip, template content and article content interleave.
+The concern: Notion applies templates asynchronously, so a page created from a template is briefly blank, and since the service appends to the end of a page, a template body landing mid-clip would interleave with the article.
 
-Currently the caller must wait and confirm the template body has landed before calling `clip_article`. That is a real burden pushed onto the caller. Options if it bites: have `clip_article` poll briefly for a settled page before its first write, or accept a `wait_for_content` flag. Not urgent — the Resources templates in use are small and land fast — but it will produce a scrambled page when it does happen, and a scrambled page reads as a bad clip rather than as a race.
+I responded by telling the caller to wait until the template body had landed. **That instruction was wrong and caused a deadlock in the very next test.** A caller followed it correctly, fetched a blank page twice, and stopped — waiting for content that was never going to arrive.
+
+Root cause, verified 2026-08-13: **every template in WDB | Resources has a blank body.** The default `(New article to read)` and the named ones such as `(Architecture clipping)` preset *properties* — Status, Areas, Tags — and seed no content. There was nothing to wait for.
+
+Two lessons worth keeping:
+
+1. **An instruction of the form "wait until X appears" is a deadlock whenever X may never appear.** It has to be paired with a way to tell "not yet" from "never", and a blank page provides no such signal — it looks identical in both cases. This one was unfalsifiable from the caller's side.
+2. **Verify a reported hazard applies before designing around it.** The race is real in the abstract; it was not real for this database, and one fetch of the template would have shown that before the instruction shipped.
+
+Still true, and narrow: if body-bearing templates are ever added to Resources, the append-to-end behaviour would interleave. Revisit then — the fix would be server-side (settle-check before the first write), not another instruction to the caller.
+
+**Notion MCP fetches may be cached — noted by the test caller:**
+
+Two consecutive `notion-fetch` calls on the same page returned an identical `as of` timestamp, so the second may have been served from cache rather than being a genuine re-read. This matters for any "fetch twice and compare" technique, including checking whether a background clip has progressed. `clip_status` goes through the Notion REST API rather than the MCP connector, so it is not affected — but a caller re-fetching the page to verify might be.
 
 **Known limitations, shipped deliberately:**
 
