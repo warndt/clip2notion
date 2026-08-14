@@ -96,10 +96,15 @@ const CLIP_ARTICLE_TOOL = {
     "Fetches a web article and writes its full content into an existing Notion page in the " +
     "WDB | Resources database, storing images inside Notion. The page must already exist — " +
     "create it and set its properties first. This tool only fills in the body.\n\n" +
-    "This tool waits for the work to finish before answering, so it usually returns the real " +
-    "outcome (CLIPPED or FAILED) directly. If it returns IN_PROGRESS the article is a long " +
-    "one — call clip_status yourself to keep waiting. Never report success on anything other " +
-    "than a CLIPPED result, and never ask the user to prompt you to check.",
+    "This tool waits briefly for the work to finish, so it often returns the real outcome " +
+    "(CLIPPED or FAILED) directly. If it returns IN_PROGRESS or STARTED, call clip_status " +
+    "yourself to keep waiting. Never report success on anything other than a CLIPPED result, " +
+    "and never ask the user to prompt you to check.\n\n" +
+    "CRITICAL: if this tool fails at the transport level — a timeout, or the server not " +
+    "responding — that does NOT mean the clip did not happen. The work is dispatched before " +
+    "the reply is sent, so it may well be running. NEVER call clip_article again after such " +
+    "an error. Call clip_status instead and let it tell you what is actually on the page. " +
+    "Retrying blindly is how a page ends up with the article on it twice.",
   inputSchema: {
     type: "object",
     properties: {

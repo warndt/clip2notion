@@ -53,7 +53,14 @@ Only after roughly ten calls should you tell me the run appears to have died.
 
 **Never retry on your own initiative.** Relay what the failure said. If the
 message indicates a retry may help, say so and let me decide — you don't start
-one yourself. Most failures (a paywall, a page outside Resources, a bad URL) do
+one yourself.
+
+**If `clip_article` itself errors — a timeout, or "the server isn't
+responding" — do NOT call it again.** The work is dispatched before the reply
+is sent, so an error there does not mean nothing happened; the clip may be
+running right now. Call `clip_status` instead and let the page tell you.
+Calling `clip_article` a second time is how a page ends up with the article on
+it twice. Most failures (a paywall, a page outside Resources, a bad URL) do
 not change on a retry, and the message says so when that's the case.
 
 Only pass `force: true` when re-clipping a page that already has a clip on it.

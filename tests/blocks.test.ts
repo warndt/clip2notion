@@ -340,6 +340,30 @@ test("bare text between block elements is not lost", () => {
   assert.match(text, /A paragraph\./);
 });
 
+// --- Footnotes -------------------------------------------------------------
+
+test("footnote markers render as references, not digits fused to the text", () => {
+  const html = `<p>I don't expect that, of course.<a id="footnote-anchor-1" href="#footnote-1" class="footnote-anchor">1</a> But it follows.</p>`;
+
+  const { blocks } = htmlToBlocks(html, "https://example.com/post");
+  const text = blocks.flatMap(richTextOf).map((item) => item.text.content).join("");
+
+  assert.match(text, /of course\. \[1\]/, "should read as a reference, not 'course.1'");
+  assert.doesNotMatch(text, /course\.1/);
+});
+
+test("a footnote link wrapping real prose stays an ordinary link", () => {
+  const html = `<p>See <a href="#footnote-2" class="footnote-anchor">the second note</a> for detail.</p>`;
+
+  const { blocks } = htmlToBlocks(html, "https://example.com/post");
+  const items = blocks.flatMap(richTextOf);
+
+  assert.ok(
+    items.some((item) => item.text.content.includes("the second note")),
+    "prose inside a footnote link must survive",
+  );
+});
+
 // --- Idempotency key -------------------------------------------------------
 
 test("the clip header links to the source URL so a retry can find it", () => {

@@ -88,11 +88,17 @@ export const TUNABLES = {
    * This was set to 20s once and did exactly that. The waiting is a convenience;
    * exceeding the platform limit to get it is not a trade worth making.
    */
-  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 6000),
-  statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 1500),
+  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 4500),
+  statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 1200),
 
-  /** How long clip_article waits after dispatch before answering. Same 10s ceiling. */
-  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 6000),
+  /**
+   * How long clip_article waits after dispatch before answering.
+   *
+   * Shorter than the status budget on purpose. A timeout here is worse than a
+   * timeout anywhere else: the dispatch has already happened, so the caller
+   * sees a transport error for work that is running.
+   */
+  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 3500),
 
   /**
    * How long to wait for a dispatched run to plant its progress marker before
@@ -106,5 +112,5 @@ export const TUNABLES = {
    * entry. Belt and braces against the 10s kill: every wait loop checks it, so
    * adding another one cannot silently reintroduce the timeout.
    */
-  syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 7500),
+  syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 6000),
 } as const;
