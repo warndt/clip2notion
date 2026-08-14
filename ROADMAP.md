@@ -140,7 +140,6 @@ And once M3 lands, these stop being tests. Clipping is just using the tool, so t
 - ⬜ Then: ordinary use, reporting what breaks
 
 - ⬜ Log what breaks in the Backlog below; fix what actually breaks, not what might
-- ⬜ **Housekeeping:** delete the four test pages in Resources — Hubble Science, Cache-Control, the paywall page, and the Noahpinion one if it isn't wanted. Claude cannot delete Notion pages; the connector exposes update and move only.
 
 **Done when:** Wil clips an article end to end from Claude with the browser extension uninstalled. **Met 2026-08-14.**
 
