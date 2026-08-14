@@ -181,6 +181,19 @@ Verified against live markup, fetched 2026-08-14:
 | Astral Codex Ten | No candidate — the post genuinely has no images. The `og:image` social card was correctly not used. |
 | MDN | No candidate, nothing rejected. |
 
+### Detect mode in the field — first four live clips (2026-08-14)
+
+Deployed at `64061f1`. Every outcome was correct, and **nothing would have been inserted on any of them** — all four articles already carried their hero inside the body.
+
+| Clip | Logged | Verified against the source |
+|---|---|---|
+| peterdarbyshire.com (WordPress blog) | `lead_image_none`, 0 rejected | Correct. 11 images on the page, all sidebar book covers, WordPress logos and a tracking pixel, all past the first paragraph. `og:image` is a blank placeholder. |
+| archdaily.com | `lead_image_skipped_duplicate` | Correct. The hero *is* the first body image; the two URLs differ only by a cache-busting query. |
+| techcrunch.com (AI-pilled) | 2 × `lead_image_rejected` (SVG), then `lead_image_skipped_duplicate` | Correct. Both site logos rejected; this article's hero sits inside the body, unlike the repro article. |
+| grimoiremanor.substack.com | `lead_image_none`, 2 rejected (40×40, 36×36 avatars) | Correct. The post opens with a paragraph and its hero follows, inside the body, where it was clipped. |
+
+Four furniture images rejected, zero real heroes rejected, zero wrong candidates, dedupe firing correctly on two different CDNs. The one evidence type still missing is a live `lead_image_found` — the flag should not flip until an article with a hero *above* the body has been clipped in detect mode. The original repro article is the guaranteed case.
+
 **Done when:** the flag is flipped to `insert` and a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. Then, and not before, `TOOL-BRIEF.md` §5 gains a line saying a lead image above the article body is captured — and the Notion mirror is re-synced.
 
 ---
@@ -247,6 +260,10 @@ Templates now preset properties. A property passed alongside `template_id` overr
 `mcp.ts` transitively imports jsdom through the converter, so a cold container spends several seconds initialising before any handler code runs. Netlify's 10s clock covers that init; a handler can only measure from its own entry. Measured cold: ~6s for a call doing no waiting at all.
 
 Mitigated by detecting a cold container (handler entered within 1.5s of module load) and using a much smaller wait ceiling, so the total stays clear of the kill. The proper fix is to stop `mcp.ts` pulling jsdom at all — split the status logic and `assertSafeUrl` into modules that don't import the converter or Readability. That is a refactor of working code, so it needs a decision rather than a drive-by.
+
+**Update 2026-08-14 — the transport errors are not our latency.** Three `clip_article` calls in a row surfaced to the caller as transport errors. Measured from the function logs, those same invocations were **warm** (`cold_start: false`) and returned in **549ms and 1736ms** — nowhere near the 10s kill, and well inside the ~3s budget the tunables target. Nothing on this side was slow. The remaining lever is not another budget cut; it is either the connector transport itself or something about how the response is delivered. Worth a look before shaving more off the wait budgets, which would cost the caller certainty for nothing.
+
+The protections held throughout: each caller checked `clip_status` instead of retrying, every URL produced exactly one `clip_start`, and no page was written twice. Clip durations themselves were 3.0s, 6.8s, 7.3s and 7.9s — the pipeline is not what feels slow.
 
 **Known limitations, shipped deliberately:**
 
