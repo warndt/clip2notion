@@ -92,53 +92,57 @@ export const TUNABLES = {
   /**
    * How long a status call may block waiting for a clip to settle.
    *
-   * ⚠️ **A synchronous Netlify function is killed at 10 seconds.** These budgets
-   * must leave room for the Notion round trips either side of the wait, or the
-   * function is terminated mid-flight and the caller sees "the server isn't
-   * responding" — which reads as an outage rather than as a clip in progress.
+   * ⚠️ **The binding limit is the MCP client's patience, not Netlify's.** A
+   * synchronous function is killed at 10s, but measurement showed calls that
+   * reached the function and returned successfully in ~5s still surfaced to the
+   * caller as "the connector's server isn't responding". Every request that
+   * arrived completed; the failures never arrived at all. So claude.ai gives up
+   * well before Netlify does, and these budgets target roughly 3s.
    *
-   * This was set to 20s once and did exactly that. The waiting is a convenience;
-   * exceeding the platform limit to get it is not a trade worth making.
+   * Waiting is a convenience. A response the caller never sees is worse than an
+   * early IN_PROGRESS it can simply ask about again.
    */
-  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 4500),
+  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 2500),
   statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 1200),
 
   /**
    * How long clip_article waits after dispatch before answering.
    *
-   * Shorter than the status budget on purpose. A timeout here is worse than a
-   * timeout anywhere else: the dispatch has already happened, so the caller
-   * sees a transport error for work that is running.
+   * Much shorter than the status budget, because this call is already the
+   * slowest: it waits on clip-background's own cold start, which is genuinely
+   * heavy (6.5MB with jsdom). A timeout here is also the worst kind — the
+   * dispatch has happened, so the caller sees a transport error for work that
+   * is running, and must not retry it.
    */
-  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 3500),
+  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 1200),
 
   /**
    * How long to wait for a dispatched run to plant its progress marker before
    * concluding it isn't running. Until that marker appears, anything on the
    * page belongs to a previous clip and must not be reported as this one's.
+   *
+   * Capped by the budgets above in practice — kept small so it cannot become
+   * the reason a response arrives too late to be seen.
    */
-  runStartWaitMs: num("RUN_START_WAIT_MS", 4000),
+  runStartWaitMs: num("RUN_START_WAIT_MS", 1200),
 
   /**
    * Hard ceiling on time spent inside a synchronous function, measured from
-   * entry. Belt and braces against the 10s kill: every wait loop checks it, so
-   * adding another one cannot silently reintroduce the timeout.
+   * entry. Every wait loop checks it, so adding another cannot silently push
+   * responses past the point where the client stops listening.
    */
-  syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 6000),
+  syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 3500),
 
   /**
    * Ceiling when the container has just cold-started.
    *
-   * Netlify's 10s clock covers container initialisation, but a handler can only
-   * measure from its own entry — so on a cold start several seconds are already
-   * gone before any of this code runs. `mcp.ts` transitively imports jsdom,
-   * which makes that init expensive.
-   *
-   * Measured cold: ~6s for a call that does no waiting at all. Adding a full
-   * wait on top of that is what produced intermittent "server isn't responding"
-   * errors mid-poll.
+   * Container initialisation happens before a handler can observe anything, so
+   * a cold request has already spent time no measurement here can see. `mcp.ts`
+   * no longer imports jsdom, which cut this sharply — cold status calls went
+   * from ~6s to under 2s — but the first call of a quiet period is still the
+   * slowest, and it is the one most likely to be abandoned by the client.
    */
-  coldStartBudgetMs: num("COLD_START_BUDGET_MS", 2500),
+  coldStartBudgetMs: num("COLD_START_BUDGET_MS", 1200),
 
   /** A handler entered within this long of module load is on a cold container. */
   coldStartWindowMs: num("COLD_START_WINDOW_MS", 1500),

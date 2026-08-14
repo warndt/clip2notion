@@ -158,7 +158,8 @@ Two related failures are worth knowing about, because both were real:
 
 | Symptom | What it means | What to do |
 |---|---|---|
-| Tool call errors, "server isn't responding" | Function timed out. The clip may be running. | Call `clip_status`. **Never** re-call `clip_article`. |
+| Tool call errors, "server isn't responding" | The client gave up before the reply arrived. The clip may be running. | Call `clip_status`. **Never** re-call `clip_article` until `clip_status` says the page is untouched. |
+| The **first** call after a quiet spell errors, later ones work | Cold start. Known and expected. | Call `clip_status` once to establish the true state, then carry on. One retry is normal; a pattern of them is not. |
 | `STATUS: FAILED`, paywall mentioned | Bot-block or paywall detected before anything was written | Tell the user to use the Web Clipper for that article |
 | `STATUS: FAILED`, other reason | Page carries an error callout; any content on it is partial | Relay verbatim; recovery is a `force` re-clip |
 | `STATUS: NOT_STARTED` | Page genuinely empty — never called, or rejected before writing | Do not report success. A fresh clip is safe here. |
