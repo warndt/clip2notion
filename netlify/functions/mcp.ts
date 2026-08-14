@@ -28,13 +28,17 @@
  *    gives an answer that can be checked rather than inferred.
  */
 
-import { loadConfig, type Config } from "../../src/config";
+// ⚠️ Import only from modules free of jsdom and Readability. This function is
+// synchronous, so Netlify kills it at 10 seconds INCLUDING container start, and
+// importing the converter costs seconds of that budget before any work begins.
+// That is why status lives in src/status.ts and the URL check in src/url.ts
+// rather than in pipeline.ts and extract.ts. Do not "tidy" these back.
+import { loadConfig, TUNABLES, type Config } from "../../src/config";
 import { ClipError } from "../../src/errors";
-import { assertSafeUrl } from "../../src/extract";
 import { log, newClipId } from "../../src/log";
-import { awaitClipSettled, awaitOwnRun, type ClipStatus } from "../../src/pipeline";
-import { TUNABLES } from "../../src/config";
 import { normalizePageId, secretMatches } from "../../src/request";
+import { awaitClipSettled, awaitOwnRun, type ClipStatus } from "../../src/status";
+import { assertSafeUrl } from "../../src/url";
 
 /** Same purpose as the copy in pipeline.ts: detect a cold container. */
 const MODULE_LOADED_AT = Date.now();
