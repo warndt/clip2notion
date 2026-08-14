@@ -63,6 +63,8 @@ The division of labour the system prompt should encode:
 2. Caller calls `clip_article` with the page id and the article URL.
 3. Caller confirms with `clip_status` before telling the user anything.
 
+⚠️ **On step 1, mind the templates.** Resources templates now preset properties of their own, and a property passed alongside `template_id` **overrides rather than merges**. A caller setting properties explicitly can silently wipe a preset Area. This is not a clipper concern — it touches no properties — but it belongs in the system prompt, because the symptom is a page that looks correctly filed and isn't.
+
 ---
 
 ## 2. The two tools
@@ -141,9 +143,14 @@ Never on a first attempt. It deletes the existing clip before rewriting.
 
 **Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly, before anything is written. The fallback is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
 
-**A newly created Resources page has a blank body, and that is normal.** Every template in that database — the default `(New article to read)` and the named ones like `(Architecture clipping)` — presets *properties* only and seeds no content. Blank is the expected steady state, not a page still loading. **Clip into it; do not wait for content to appear.**
+**A newly created Resources page already has content, and that is normal.** The templates — `[New resource] <v1.0>` and its siblings — seed a version toggle and a divider along with preset properties. Verified 2026-08-14. **Clip into the page regardless; never wait for it to look a particular way before starting.**
 
-This is worth stating explicitly because an earlier version of the guidance told the caller to wait for template content, and that deadlocked a real session: it followed the instruction correctly, read a blank page, and stopped, waiting for something that was never coming. The instruction was also unfalsifiable — a blank page looks identical whether a template is still landing or has nothing to land.
+**Existing content is not evidence of an existing clip.** The `force: false` guard is per-URL, not per-page (section 2): a page is "already clipped" only when it carries a clip header linking to *that* URL. Template furniture, or notes you added, are neither. Reaching for `force` because a page isn't empty would break rule 5 and delete content that was never a clip.
+
+Two related failures are worth knowing about, because both were real:
+
+- An earlier version of this guidance told the caller to wait until template content appeared. That deadlocked a session — it followed the instruction correctly, read a blank page, and stopped, waiting for something that was never coming. The instruction was unfalsifiable: a blank page looks identical whether a template is still landing or has nothing to land.
+- The reverse then became possible when templates gained bodies. `clip_status` briefly read any content-bearing page as a clip mid-write, so a fresh page reported `IN_PROGRESS` with nothing running. Fixed by requiring enough content to look like a half-written article rather than furniture.
 
 ---
 

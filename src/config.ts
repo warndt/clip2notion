@@ -78,6 +78,18 @@ export const TUNABLES = {
   minImageDimension: num("MIN_IMAGE_DIMENSION", 33),
 
   /**
+   * How many unattributed content blocks make a page look mid-write rather than
+   * merely furnished.
+   *
+   * Resources templates seed body content — a version toggle and a divider — so
+   * "has content" no longer implies "a clip is in flight". Below this count the
+   * page reads as template furniture; at or above it, as an article being
+   * deleted or written. A partially deleted clip is also marked by its progress
+   * callout, so this is a second line of defence rather than the only one.
+   */
+  orphanContentThreshold: num("ORPHAN_CONTENT_THRESHOLD", 5),
+
+  /**
    * How long a status call may block waiting for a clip to settle.
    *
    * ⚠️ **A synchronous Netlify function is killed at 10 seconds.** These budgets
