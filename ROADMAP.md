@@ -20,6 +20,8 @@ Everything else is negotiable. These five fail *invisibly* — the page looks fi
 
 ---
 
+> **State as of 2026-08-14:** the service works end to end. An article is clipped from a claude.ai chat session via the MCP connector, images stored in Notion, structure intact, exactly one copy after a forced re-clip. Everything below is either history, or optional work that real usage will prioritise better than planning would.
+
 ## M1 — MVP 🟡
 
 The whole service, in one pass. Awaiting review.
@@ -57,7 +59,7 @@ The M2 clips below prove the pipeline; they do **not** prove callability, becaus
 - 🟡 **Ported.** `netlify/functions/mcp.ts` now serves `clip_article` and `clip_status`, authenticated by a token in the connector URL. The probe is gone; the pipeline is unchanged behind it.
 - 🟡 `src/pipeline.ts` gains `deriveClipStatus` (pure, tested) and `getClipStatus`.
 - 🟡 `CALLER-PROMPT.md` rewritten around the two tools and the dispatch-then-confirm loop.
-- ⬜ Deploy and re-point the connector at `/mcp?token=…`, then run a real clip end to end from a chat session.
+- 🟡 Deployed, connector re-pointed at `/mcp/<token>`, and a real clip run end to end from a chat session. **The query-string form did not survive** — claude.ai reached the endpoint with no query at all (`has_query: false` in every logged request), so the connector attached but its tools never loaded. A path segment carries the token reliably. Query, `Authorization` and `X-Clip-Secret` are all still accepted.
 
 ### Spike results — how each failure channel actually behaves
 
@@ -81,12 +83,14 @@ The spike's success text said "accepted, verify the page shortly". A session rel
 
 Returning only after the write confirms is not available: a long illustrated article takes minutes and a tool call cannot wait that long. So the fix is a second tool.
 
-- ⬜ **Add `clip_status(page_id)`** returning a definite state — `not_started` / `in_progress` / `clipped` / `failed` with the reason. It reads the page the same way the idempotency check already does, so the logic exists.
-- ⬜ `clip_article` returns dispatch wording that cannot be mistaken for completion, and instructs the caller to confirm with `clip_status`.
+- 🟡 **`clip_status(page_id)`** returns a definite state — `NOT_STARTED` / `IN_PROGRESS` / `CLIPPED` / `FAILED`, as a stable first-line token. It reads the page the same way the idempotency check does.
+- 🟡 `clip_article` returns dispatch wording that cannot be mistaken for completion, and instructs the caller to confirm with `clip_status`.
 
 This turns "did it work" into something the session can *check* rather than *infer from prose*, which is a better guarantee than any wording discipline.
-- ⬜ If the spike passes: port `runClip` behind the MCP entry point. Mechanical — the pipeline is unchanged.
-- ⬜ Rewrite `CALLER-PROMPT.md` (currently marked superseded; do not paste it anywhere)
+- 🟡 Ported `runClip` behind the MCP entry point. The pipeline itself is unchanged.
+- 🟡 `CALLER-PROMPT.md` rewritten around the two tools, the dispatch-then-confirm loop, and the full parameter contract.
+
+**Done when:** an article is clipped end to end from a claude.ai chat session, with the browser extension uninstalled. **Met 2026-08-14** — Noahpinion long-form, three images stored in Notion with fresh file objects, section headings and footnotes intact, article present exactly once after a forced re-clip, images confirmed rendering.
 
 **Documented fallback — Notion automation → webhook.** A paid-plan Notion database automation POSTs to the service when a page is created, inverting the direction so Notion calls us and the caller needs no HTTP capability at all.
 
@@ -130,13 +134,27 @@ And once M3 lands, these stop being tests. Clipping is just using the tool, so t
 - ✅ Image-heavy — NASA Hubble Science (6 images, all stored)
 - ✅ Technical post with code blocks and tables — MDN Cache-Control
 - ✅ Paywalled — NYT
-- ⬜ Long-form magazine piece, including a paragraph over 2000 characters
-- ⬜ A site with lazy-loaded images (`data-src` / `srcset` placeholders) — verified in fixtures, never against a live lazy-loading site
+- ✅ Long-form with CDN images and footnotes — Noahpinion (Substack)
+- ✅ A site with `srcset` CDN transforms — Substack, which is what exposed the comma-splitting bug
+- ⬜ A paragraph over 2000 characters against a live article — still only proven in fixtures
 - ⬜ Then: ordinary use, reporting what breaks
 
 - ⬜ Log what breaks in the Backlog below; fix what actually breaks, not what might
+- ⬜ **Housekeeping:** delete the four test pages in Resources — Hubble Science, Cache-Control, the paywall page, and the Noahpinion one if it isn't wanted. Claude cannot delete Notion pages; the connector exposes update and move only.
 
-**Done when:** Wil clips an article end to end from Claude with the browser extension uninstalled.
+**Done when:** Wil clips an article end to end from Claude with the browser extension uninstalled. **Met 2026-08-14.**
+
+### Field report from the first live connector clips (2026-08-13/14)
+
+Five defects found by the calling session, all fixed. Recorded because every one of them was invisible from this side — the pipeline reported success throughout.
+
+- ✅ **P0 — `clip_status` said `NOT_STARTED` for a page holding a complete article.** Two causes. A forced re-clip deleted blocks one at a time with the header first, leaving content unmarked for tens of seconds; the progress callout is now written *before* any deletion. And absence of a marker was read as absence of content, which is the dangerous direction — the contract sends a `NOT_STARTED` page to a non-`force` clip, appending a second copy. Content with no header now reads `in_progress`.
+- ✅ **P1 — `clip_article` asserted a confirmed outcome it had no basis for.** It dispatched then watched the page, and on the first look a forced re-clip still shows the *previous* clip. It now waits for its own run's marker before believing any terminal state.
+- ✅ **A transport error from `clip_article` did not mean the clip hadn't happened.** Dispatch completes before the wait, so a killed function looks like failure for work already running. Retrying on that error is how a page gets the article twice. The tool description and caller prompt now forbid it: after a transport error, call `clip_status`, never `clip_article`.
+- ✅ **Headings dropped entirely on Substack.** Not conversion — Readability scored them as boilerplate because an anchor-link widget with a `<button>` sits inside each one. Nine headings before extraction, zero after. Headings are rebuilt as plain elements first.
+- ✅ **Footnote bodies dropped, markers left as orphaned digits.** Bodies are now collected from the original document before Readability discards them and appended as a Footnotes section; markers render as `[1]` rather than fusing into the preceding word.
+
+Also corrected: the `CLIPPED` response asserted images were stored in Notion, which nothing verified — and it said so about a run whose images were broken.
 
 ---
 
