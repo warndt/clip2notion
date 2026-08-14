@@ -18,9 +18,10 @@ import { ClipError, errors, toClipError } from "./errors";
 import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
-  clipHeader, collectImageBlocks, errorCallout, footnoteBlocks, htmlToBlocks, statusCallout,
-  ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER, type Block,
+  clipHeader, collectImageBlocks, errorCallout, footnoteBlocks, htmlToBlocks, leadImageBlock,
+  statusCallout, ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER, type Block,
 } from "./blocks";
+import { normalizeImageUrl, type LeadImageResult } from "./lead-image";
 import {
   blockFirstLink, blockLinksTo, blockPlainText, NotionClient, type NotionBlockRecord,
 } from "./notion";
@@ -129,6 +130,10 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
     if (blocks.length === 0) {
       throw errors.notExtractable("Conversion produced no blocks");
     }
+
+    // Before the import, so the hero is stored in Notion like any other image
+    // and degrades to an external reference by the same path if it can't be.
+    applyLeadImage(blocks, article.leadImage, article.finalUrl, clipId);
 
     await importImages(client, blocks, clipId);
 
@@ -284,6 +289,84 @@ async function reportFailure(
   } catch (err) {
     // The page now shows "in progress" forever, which is at least visible.
     log("error", clipId, "error_report_failed", { reason: String(err) });
+  }
+}
+
+// --- Lead image ------------------------------------------------------------
+
+function externalUrlOf(block: Block): string | null {
+  return (block["image"] as { external?: { url?: string } } | undefined)?.external?.url ?? null;
+}
+
+/**
+ * Place the hero that sits outside the article body, or say why not.
+ *
+ * Deduped here rather than in the selector because this is the first point that
+ * knows both halves: the candidate and what the body already holds. The two are
+ * frequently the same file at two sizes — on the repro article `og:image` is a
+ * body image at a different resize — and a duplicated hero is a visible defect.
+ *
+ * `lead_image_none` and `lead_image_rejected` matter more than they look: they
+ * are the only way to tell a site with no hero from exclusions set too tight.
+ *
+ * Total by construction. The article is the deliverable; a lead image is a
+ * bonus and may never cost the clip.
+ *
+ * Exported, and taking its mode as an argument, so both the dedupe and the
+ * "detect mode writes nothing" guarantee are tests rather than readings of the
+ * loop — the run-time path passes neither.
+ */
+export function applyLeadImage(
+  blocks: Block[],
+  lead: LeadImageResult,
+  baseUrl: string,
+  clipId: string,
+  mode: string = TUNABLES.leadImageMode,
+): void {
+  if (mode === "off") return;
+
+  try {
+    for (const rejection of lead.rejected) {
+      log("info", clipId, "lead_image_rejected", { url: rejection.url, reason: rejection.reason });
+    }
+
+    const candidate = lead.candidate;
+    if (!candidate) {
+      log("info", clipId, "lead_image_none", { rejected: lead.rejected.length });
+      return;
+    }
+
+    const key = normalizeImageUrl(candidate.url);
+    const duplicate = collectImageBlocks(blocks).find((block) => {
+      const url = externalUrlOf(block);
+      return url !== null && normalizeImageUrl(url) === key;
+    });
+
+    if (duplicate) {
+      // A correct outcome, not a failure: the hero is already in the body.
+      log("info", clipId, "lead_image_skipped_duplicate", {
+        lead_url: candidate.url,
+        body_url: externalUrlOf(duplicate),
+      });
+      return;
+    }
+
+    log("info", clipId, "lead_image_found", {
+      url: candidate.url,
+      rule: candidate.rule,
+      width: candidate.width,
+      height: candidate.height,
+      has_caption: candidate.captionHtml !== null,
+      mode,
+      inserted: mode === "insert",
+    });
+
+    // Below the header paragraph and above the first heading, where it sits in
+    // the original. The header is prepended to this array when the batches are
+    // built, so the front of the body is exactly that position.
+    if (mode === "insert") blocks.unshift(leadImageBlock(candidate, baseUrl));
+  } catch (err) {
+    log("warn", clipId, "lead_image_failed", { reason: String(err) });
   }
 }
 

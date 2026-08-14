@@ -865,6 +865,34 @@ export function footnoteBlocks(
   return blocks;
 }
 
+/**
+ * The lead image, as a block.
+ *
+ * Built here rather than in the selector so its caption goes through exactly
+ * the path a `<figcaption>` takes inside the body — including the alt-text
+ * fallback. A second caption mechanism would be a second thing to keep right.
+ *
+ * The parameter is shaped rather than imported: `lead-image.ts` imports this
+ * module for `pickImageUrl`, and a type import back would be a cycle.
+ */
+export function leadImageBlock(
+  lead: { url: string; captionHtml: string | null; alt: string | null },
+  baseUrl: string,
+): Block {
+  let caption: RichText[] = [];
+
+  if (lead.captionHtml) {
+    const dom = new JSDOM("<!DOCTYPE html><body></body>");
+    const holder = dom.window.document.createElement("div");
+    holder.innerHTML = lead.captionHtml;
+    caption = richTextFrom(holder, baseUrl);
+  }
+
+  if (caption.length === 0 && lead.alt) caption = [makeRichText(lead.alt, {}, null)];
+
+  return imageBlock(lead.url, caption);
+}
+
 export interface HeaderFields {
   title?: string | null;
   siteName?: string | null;

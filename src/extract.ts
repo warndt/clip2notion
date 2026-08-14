@@ -10,6 +10,7 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import { TUNABLES } from "./config";
 import { errors } from "./errors";
+import { selectLeadImage, type LeadImageResult } from "./lead-image";
 import { assertSafeUrl } from "./url";
 
 // Re-exported: fetching still needs it, but it now lives in a module free of
@@ -30,6 +31,12 @@ export interface ExtractedArticle {
   textLength: number;
   finalUrl: string;
   footnotes: Footnote[];
+  /**
+   * The hero above the article body, if there is one, plus what was rejected on
+   * the way to deciding. The pipeline dedupes and places it — the caller of the
+   * converter is the only place that knows what the body already contains.
+   */
+  leadImage: LeadImageResult;
 }
 
 // --- Fetch -----------------------------------------------------------------
@@ -304,8 +311,12 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
     ]),
   );
 
-  // Both of these read the document before Readability mutates it.
+  // All three of these read the document before Readability mutates it. The
+  // lead image especially: it lives *outside* the article root, which is the
+  // part of the document Readability is least careful with.
   const footnotes = collectFootnotes(doc);
+  const leadImage =
+    TUNABLES.leadImageMode === "off" ? { candidate: null, rejected: [] } : selectLeadImage(doc, finalUrl);
   stripHeadingWidgets(doc);
 
   const freeFlag = meta(doc, ['meta[name="isAccessibleForFree"]', 'meta[itemprop="isAccessibleForFree"]']);
@@ -348,5 +359,6 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
     textLength,
     finalUrl,
     footnotes,
+    leadImage,
   };
 }
