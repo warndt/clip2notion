@@ -6,13 +6,46 @@ Covers only the clipping tool — not the Resources database, Areas, Tags, or th
 
 ## How to use this document
 
-It has two audiences.
+It has three audiences.
+
+**Using it day to day.** Section 0 is the whole of it. The rest is detail you only need when something misbehaves.
 
 **A Claude session doing the clipping.** Read this when something goes wrong, or when you need a detail the system prompt doesn't carry — a parameter, a status value, a symptom you don't recognise. Sections 2, 3, 5, 6 and 8 are for you.
 
 **Whoever writes or revises the system prompt.** Sections 1 and 4 are the substance. Section 7 is setup and belongs to whoever configures the connector, not to the caller.
 
 **Section 4 is deliberately duplicated in the system prompt itself.** Those five rules are load-bearing: each one, if got wrong, produces a confidently reported clip that never happened, or an article on the page twice. They must not depend on this document being fetched, reachable, or current. If you are revising the prompt and thinking of replacing them with a pointer here — don't. Reference material is for recovering from problems, not for preventing them.
+
+---
+
+## 0. Using it
+
+Open the Claude project that handles Resources, give it the article's URL, and ask for it to be saved. Claude creates the page, sets the properties, and calls the clipper for the body. Nothing else is required of you — in particular, **you never need to say "check again"**; if a clip is still running, Claude waits for it.
+
+### What a good clip looks like
+
+Open the page. It should have, in order:
+
+1. A **`Source:`** line — article title as a link, then publication, author and date
+2. The article itself, headings and all
+3. A **Footnotes** section at the end, if the original had footnotes
+
+Then check the images actually render. That is the one thing no tool can verify — Claude can confirm an image is stored in Notion, but not that it displays. If images are broken, say so; don't assume a reported success means they're fine.
+
+### When it goes wrong
+
+- **A ⚠️ error callout on the page** — read it. It says what happened in plain language and whether trying again would help.
+- **Article there but wrong** (missing sections, mangled tables) — ask Claude to re-clip it with force. That deletes the existing clip and rebuilds it.
+- **A ⏳ callout still there after several minutes** — the run died. Ask for a force re-clip.
+- **Paywalled or login-walled** — the service can't log in to anything, by design. Use the Notion Web Clipper browser extension for those. Same for pages rendered entirely in JavaScript.
+
+### One thing to know about `force`
+
+A forced re-clip deletes everything from the `Source:` line to the end of the page. Anything you added **above** it is safe; notes you added **below** the article go with it. Move them up, or copy them out first.
+
+### When something is properly broken
+
+Netlify → the clip2notion site → **Function logs**. Every run is tagged with a `clip_id`. `image_degraded` and `image_import_failed` mark images that fell back to hotlinks — a cluster of those means something systematic about that site rather than a one-off.
 
 ---
 
