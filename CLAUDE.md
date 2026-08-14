@@ -82,6 +82,7 @@ These bound any implementation. Several of them fail late and silently in produc
 ### Netlify
 
 - Synchronous functions time out at **10s** (26s on Pro, by request). Background functions (`-background` filename suffix) run up to **15 minutes** but return `202` immediately and cannot report a result in the HTTP response.
+- ⚠️ **`mcp.ts` is synchronous, so the 10s ceiling applies to it.** It blocks briefly waiting for a clip to settle, and those budgets live in `TUNABLES.syncFunctionBudgetMs`. Exceeding the ceiling does not degrade gracefully: Netlify kills the function mid-flight and the caller sees *"the connector's server isn't responding"* — indistinguishable from the whole service being down. This has already happened once, from budgets set to 20s. Every wait loop measures against `enteredAt`, the moment the request arrived; keep it that way when adding another.
 - **Netlify retries a failed background function after 1 minute, and again 2 minutes later.** A run that fails after partially appending content will otherwise duplicate that content. This is the single most important failure mode in the project.
 - Consequence: **only throw from the background handler for genuinely transient failures.** A deterministic failure (paywall, unextractable content, bad page id) must be recorded in the page, logged, and then returned as a success to Netlify — otherwise it gets retried twice for no reason.
 

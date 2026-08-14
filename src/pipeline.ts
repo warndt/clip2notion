@@ -123,16 +123,29 @@ export async function getClipStatus(
  * outlives it, the caller is told to call again — which it can do by itself,
  * without involving the user.
  */
+/**
+ * A deadline that respects both the caller's budget and the platform's ceiling.
+ *
+ * A synchronous Netlify function is killed at 10 seconds, and a killed function
+ * looks to the caller like the whole service is down. `enteredAt` is when the
+ * request arrived, so time already spent on Notion round trips counts against
+ * the budget rather than being ignored.
+ */
+function deadlineFrom(enteredAt: number, budgetMs: number): number {
+  return Math.min(Date.now() + budgetMs, enteredAt + TUNABLES.syncFunctionBudgetMs);
+}
+
 export async function awaitClipSettled(
   pageId: string,
   config: Config,
   clipId: string,
   budgetMs: number = TUNABLES.statusWaitBudgetMs,
+  enteredAt: number = Date.now(),
 ): Promise<ClipStatus> {
   const client = new NotionClient(config, clipId);
   await client.assertPageInDataSource(pageId);
 
-  const deadline = Date.now() + budgetMs;
+  const deadline = deadlineFrom(enteredAt, budgetMs);
   let status = deriveClipStatus(await client.listChildren(pageId));
 
   while (status.state === "in_progress" && Date.now() < deadline) {
@@ -161,12 +174,13 @@ export async function awaitOwnRun(
   config: Config,
   clipId: string,
   budgetMs: number,
+  enteredAt: number = Date.now(),
 ): Promise<ClipStatus | null> {
   const client = new NotionClient(config, clipId);
   await client.assertPageInDataSource(pageId);
 
-  const deadline = Date.now() + budgetMs;
-  const startDeadline = Date.now() + Math.min(TUNABLES.runStartWaitMs, budgetMs);
+  const deadline = deadlineFrom(enteredAt, budgetMs);
+  const startDeadline = Math.min(deadline, Date.now() + TUNABLES.runStartWaitMs);
   let started = false;
 
   while (Date.now() < deadline) {
