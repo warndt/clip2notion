@@ -77,24 +77,28 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
   }
 
   /**
-   * No marker of any kind — but that is not the same as an empty page, and
-   * saying "nothing was clipped" about a page holding content is the most
-   * dangerous thing this function can do. The caller is told a NOT_STARTED page
-   * needs a fresh clip *without* `force`, which appends a second copy of the
-   * article onto a page that already has one.
+   * No marker of any kind. Saying "nothing was clipped" about a page that holds
+   * a partially written article is the most dangerous thing this function can
+   * do: the caller is told a NOT_STARTED page needs a fresh clip *without*
+   * `force`, which appends a second copy onto a page that already has one.
    *
-   * A forced re-clip deletes the old blocks one at a time, and the header goes
-   * first, so there is a real window in which content exists with no header
-   * above it. Content without a marker therefore reads as "still working",
-   * never as "nothing here".
+   * But "has content" is not evidence of a clip. Resources templates seed body
+   * content of their own — a version toggle and a divider — so every freshly
+   * created page arrives non-empty. Treating that as a clip in flight would
+   * have the caller poll a page where nothing is running.
+   *
+   * The threshold separates the two: template furniture is a block or two, a
+   * half-deleted article is many. And since a forced re-clip now writes its
+   * progress callout before deleting anything, that case is marked anyway —
+   * this is the second line of defence, not the only one.
    */
   const substantive = children.filter(
     (block) => block.type !== "divider" && blockPlainText(block).trim().length > 0,
   );
-  if (substantive.length > 0) {
+  if (substantive.length >= TUNABLES.orphanContentThreshold) {
     return {
       state: "in_progress",
-      detail: `Page holds ${substantive.length} block(s) but no clip header — a clip is probably mid-write.`,
+      detail: `Page holds ${substantive.length} blocks but no clip header — a clip is probably mid-write.`,
     };
   }
 
@@ -390,6 +394,40 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
  * on every clip, which is a permanent visible artifact to solve a problem that
  * has not happened yet. Recorded in the ROADMAP backlog.
  */
+/**
+ * Which blocks a forced re-clip removes.
+ *
+ * Exported and pure so the blast radius of a destructive operation is a test
+ * rather than a reading of the loop. This matters more since Resources
+ * templates began seeding their own body content: every page now has blocks
+ * above the clip that must survive a re-clip.
+ */
+export function selectBlocksToDelete(
+  existing: NotionBlockRecord[],
+  url: string,
+  protectedBlockId: string | null = null,
+): NotionBlockRecord[] {
+  const headerIndex = existing.findIndex((block) => blockLinksTo(block, url));
+
+  // Everything from the clip header down. Anything above it belongs to whoever
+  // set the page up — a template's version toggle, the user's own notes — and
+  // is never touched.
+  const doomed = headerIndex >= 0 ? existing.slice(headerIndex) : [];
+  const above = headerIndex >= 0 ? existing.slice(0, headerIndex) : existing;
+
+  // Stale progress and error callouts are swept wherever they sit, so a page
+  // left showing "in progress" by a dead run recovers.
+  for (const block of above) {
+    if (block.type !== "callout") continue;
+    const text = blockPlainText(block);
+    if (text.includes(STATUS_MARKER) || text.includes(ERROR_MARKER)) doomed.push(block);
+  }
+
+  // Never sweep away this run's own progress marker — it is standing in front
+  // of the very deletion it announces.
+  return doomed.filter((block) => block.id !== protectedBlockId);
+}
+
 async function clearPreviousClip(
   client: NotionClient,
   existing: NotionBlockRecord[],
@@ -397,21 +435,9 @@ async function clearPreviousClip(
   clipId: string,
   protectedBlockId: string | null = null,
 ): Promise<number> {
-  const headerIndex = existing.findIndex((block) => blockLinksTo(block, url));
-
-  const doomed = headerIndex >= 0 ? existing.slice(headerIndex) : [];
-  const above = headerIndex >= 0 ? existing.slice(0, headerIndex) : existing;
-
-  for (const block of above) {
-    if (block.type !== "callout") continue;
-    const text = blockPlainText(block);
-    if (text.includes(STATUS_MARKER) || text.includes(ERROR_MARKER)) doomed.push(block);
-  }
+  const doomed = selectBlocksToDelete(existing, url, protectedBlockId);
 
   for (const block of doomed) {
-    // Never sweep away this run's own progress marker — it is standing in front
-    // of the very deletion it announces.
-    if (protectedBlockId && block.id === protectedBlockId) continue;
     try {
       await client.deleteBlock(block.id);
     } catch (err) {

@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deriveClipStatus } from "../src/pipeline";
+import { deriveClipStatus, selectBlocksToDelete } from "../src/pipeline";
 import { clipHeader, errorCallout, statusCallout, type Block } from "../src/blocks";
 import type { NotionBlockRecord } from "../src/notion";
 
@@ -39,14 +39,53 @@ test("an empty page is not_started", () => {
   assert.equal(deriveClipStatus([]).state, "not_started");
 });
 
-test("a page holding content but no markers is NOT reported as not_started", () => {
-  // The P0 defect. A forced re-clip deletes the old blocks one at a time and
-  // the header goes first, so there is a real window where content exists with
-  // no header above it. Calling that "nothing was clipped" steers the caller
-  // into a fresh non-force clip, which appends a second copy of the article.
-  const status = deriveClipStatus([paragraph]);
+/** What a Resources template seeds into a brand-new page: a toggle and a divider. */
+function templateFurniture(): NotionBlockRecord[] {
+  return [
+    record(
+      {
+        object: "block",
+        type: "toggle",
+        toggle: { rich_text: [{ type: "text", text: { content: "Version 1.0" } }] },
+      },
+      "tpl-toggle",
+    ),
+    record({ object: "block", type: "divider", divider: {} }, "tpl-divider"),
+  ];
+}
 
-  assert.notEqual(status.state, "not_started", "content without a marker must never read as empty");
+test("a fresh page carrying only template furniture reads as not_started", () => {
+  // Resources templates seed a version toggle and a divider, so a newly created
+  // page is never empty. Reading that as "a clip is mid-write" would have the
+  // caller poll a page where nothing is running, then report a dead run.
+  assert.equal(deriveClipStatus(templateFurniture()).state, "not_started");
+});
+
+test("template furniture plus a finished clip still reads as clipped", () => {
+  const status = deriveClipStatus([...templateFurniture(), header, paragraph]);
+  assert.equal(status.state, "clipped");
+  assert.equal(status.sourceUrl, "https://example.com/piece");
+});
+
+test("a half-deleted article with no markers is NOT reported as not_started", () => {
+  // The P0 defect. A forced re-clip deletes the old blocks one at a time and
+  // the header goes first, so there is a real window where article content
+  // exists with no header above it. Calling that "nothing was clipped" steers
+  // the caller into a fresh non-force clip, appending a second copy.
+  const remnants = Array.from({ length: 8 }, (_, i) =>
+    record(
+      {
+        object: "block",
+        type: "paragraph",
+        paragraph: { rich_text: [{ type: "text", text: { content: `orphaned para ${i}` } }] },
+      },
+      `orphan-${i}`,
+    ),
+  );
+
+  const status = deriveClipStatus(remnants);
+
+  assert.notEqual(status.state, "not_started", "article content must never read as empty");
   assert.equal(status.state, "in_progress");
 });
 
@@ -105,9 +144,58 @@ test("a paragraph that merely mentions a link is not mistaken for the header", (
     "decoy",
   );
 
-  // Not "clipped": a stray link is not a clip header. It reads as in_progress
-  // now rather than not_started, because content is present.
-  assert.equal(deriveClipStatus([decoy]).state, "in_progress");
+  // The point is that it is not "clipped" — a stray link is not a clip header.
+  assert.notEqual(deriveClipStatus([decoy]).state, "clipped");
+});
+
+// --- What a forced re-clip deletes ------------------------------------------
+
+test("content above the clip header survives a forced re-clip", () => {
+  // Every Resources page now has template furniture above the clip, so this is
+  // the normal case rather than an edge one. If deletion ever became "from the
+  // first block", a re-clip would silently eat the template's version toggle.
+  const furniture = templateFurniture();
+  const body = record(
+    {
+      object: "block",
+      type: "paragraph",
+      paragraph: { rich_text: [{ type: "text", text: { content: "article body" } }] },
+    },
+    "body",
+  );
+
+  const doomed = selectBlocksToDelete([...furniture, header, body], "https://example.com/piece");
+  const doomedIds = doomed.map((block) => block.id);
+
+  assert.deepEqual(doomedIds, ["header", "body"], "only the clip itself is removed");
+  for (const kept of furniture) {
+    assert.ok(!doomedIds.includes(kept.id), `${kept.id} must survive`);
+  }
+});
+
+test("a forced re-clip sweeps stale callouts but never its own marker", () => {
+  const running = record(statusCallout("clp_current"), "current-marker");
+  const stale = record(errorCallout("Old failure.", "clp_old"), "stale-error");
+
+  const doomed = selectBlocksToDelete(
+    [...templateFurniture(), stale, running, header],
+    "https://example.com/piece",
+    "current-marker",
+  ).map((block) => block.id);
+
+  assert.ok(doomed.includes("stale-error"), "a stale error callout is swept");
+  assert.ok(doomed.includes("header"), "the previous clip goes");
+  assert.ok(!doomed.includes("current-marker"), "this run's own marker must survive");
+  assert.ok(!doomed.includes("tpl-toggle"), "template furniture must survive");
+});
+
+test("with no matching header, a forced re-clip deletes no page content", () => {
+  const doomed = selectBlocksToDelete(
+    [...templateFurniture(), paragraph],
+    "https://example.com/never-clipped",
+  );
+
+  assert.deepEqual(doomed, [], "a URL that was never clipped removes nothing");
 });
 
 test("the header must carry a link, not just the prefix text", () => {
@@ -122,5 +210,5 @@ test("the header must carry a link, not just the prefix text", () => {
 
   // The prefix alone must not count as a header — a clip header always carries
   // the source link, which is what makes it the idempotency key.
-  assert.equal(deriveClipStatus([linkless]).state, "in_progress");
+  assert.notEqual(deriveClipStatus([linkless]).state, "clipped");
 });

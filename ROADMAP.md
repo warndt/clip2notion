@@ -187,7 +187,9 @@ The concern: Notion applies templates asynchronously, so a page created from a t
 
 I responded by telling the caller to wait until the template body had landed. **That instruction was wrong and caused a deadlock in the very next test.** A caller followed it correctly, fetched a blank page twice, and stopped — waiting for content that was never going to arrive.
 
-Root cause, verified 2026-08-13: **every template in WDB | Resources has a blank body.** The default `(New article to read)` and the named ones such as `(Architecture clipping)` preset *properties* — Status, Areas, Tags — and seed no content. There was nothing to wait for.
+Root cause, verified 2026-08-13: **at that time every template in WDB | Resources had a blank body.** The default `(New article to read)` and the named ones such as `(Architecture clipping)` preset *properties* — Status, Areas, Tags — and seeded no content. There was nothing to wait for.
+
+⚠️ **No longer true.** The templates were reissued on 2026-08-14 as `[New resource] <v1.0>` and siblings, and now seed a version toggle and a divider. The advice is unchanged — clip in regardless, never wait — but the reasoning above is history, not the current state. The change also caused a follow-on defect, recorded below.
 
 Two lessons worth keeping:
 
@@ -199,6 +201,18 @@ Still true, and narrow: if body-bearing templates are ever added to Resources, t
 **Notion MCP fetches may be cached — noted by the test caller:**
 
 Two consecutive `notion-fetch` calls on the same page returned an identical `as of` timestamp, so the second may have been served from cache rather than being a genuine re-read. This matters for any "fetch twice and compare" technique, including checking whether a background clip has progressed. `clip_status` goes through the Notion REST API rather than the MCP connector, so it is not affected — but a caller re-fetching the page to verify might be.
+
+**Templates gained bodies, which broke status detection (2026-08-14). Fixed.**
+
+Resources templates were reissued carrying a version toggle and a divider. `deriveClipStatus` read *any* content-without-a-header as a clip mid-write — a guard added days earlier against the opposite failure — so a freshly created page reported `IN_PROGRESS` with nothing running. A caller would poll it and then report a dead run.
+
+Now requires enough content to look like a half-written article rather than template furniture (`ORPHAN_CONTENT_THRESHOLD`, default 5 blocks). The forced-re-clip guard is also marked by its own progress callout, so the content heuristic is a second line of defence rather than the only one.
+
+Also extracted `selectBlocksToDelete` as a pure exported function and tested it, because template furniture now sits above every clip and the blast radius of a destructive operation should be a test rather than a reading of the loop. Confirmed: content above the clip header survives, stale callouts are swept, the run's own marker is spared, and a URL that was never clipped removes nothing.
+
+**A caller sets properties that a template also presets — worth knowing:**
+
+Templates now preset properties. A property passed alongside `template_id` overrides rather than merges, so a caller setting properties explicitly can silently wipe a template's preset Area. The clipper never touches properties, so this is not a clipper bug — but it belongs in the caller's system prompt.
 
 **Cold starts eat the synchronous budget — mitigated, not solved:**
 
