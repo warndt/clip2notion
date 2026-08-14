@@ -78,6 +78,36 @@ export const TUNABLES = {
   minImageDimension: num("MIN_IMAGE_DIMENSION", 33),
 
   /**
+   * Lead image — the hero that sits outside the readable body.
+   *
+   * `off` skips selection entirely. `detect` runs it and logs what it *would*
+   * insert without touching the page. `insert` places it below the header.
+   *
+   * Defaults to `detect` so the first deploy produces log evidence over a
+   * spread of real sites before anything reaches a page: the risk being
+   * managed is a site logo appearing at the top of every clip, which is a
+   * visible defect on every page rather than a missing bonus on one.
+   *
+   * An unrecognised value behaves as `detect`, which is the safe direction for
+   * a typo to fail in.
+   *
+   * ⚠️ A Netlify env change does not reach live functions without a redeploy.
+   */
+  leadImageMode: (process.env.LEAD_IMAGE_MODE || "detect").toLowerCase(),
+
+  /**
+   * A lead candidate below this on either axis is furniture, not a hero.
+   * Much stricter than `minImageDimension`, which only screens spacers.
+   */
+  leadImageMinDimension: num("LEAD_IMAGE_MIN_DIMENSION", 200),
+
+  /** Longer than this and the text beside the image is prose, not a credit line. */
+  leadImageMaxCaptionChars: num("LEAD_IMAGE_MAX_CAPTION_CHARS", 200),
+
+  /** How much text makes a `<p>` article prose rather than a label or a teaser. */
+  leadImageBodyParagraphChars: num("LEAD_IMAGE_BODY_PARAGRAPH_CHARS", 100),
+
+  /**
    * How many unattributed content blocks make a page look mid-write rather than
    * merely furnished.
    *

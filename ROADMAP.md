@@ -157,6 +157,34 @@ Also corrected: the `CLIPPED` response asserted images were stored in Notion, wh
 
 ---
 
+## M4 — Lead image 🟡
+
+Articles whose hero sits **outside** the article body lost it entirely. Nothing failed and nothing was logged: images are only ever collected from Readability's output, so an image above the article root was never seen. Confirmed in the code before building — 8 images in the raw TechCrunch document, 2 in the extracted body, no filter involved.
+
+- 🟡 `src/lead-image.ts` — candidate selection over the region from the top of the document to the first real body paragraph, which covers both places a hero hides: above the `<h1>`, and just inside the body ahead of the prose. Exclusions for SVGs, furniture filenames, sub-200px images, tracking pixels, `data:` URIs, and chrome ancestry. Runs before Readability, which mutates the document it is given.
+- 🟡 Dedupe by normalised URL — host plus path, no query — because the same file appears at different CDN sizes in the two places. WordPress's `-1024x683` resize suffix is stripped too: the same hazard expressed in the path.
+- 🟡 **No metadata fallback.** On the repro article `og:image` is a *body* image at another size, so a naive fallback would insert a duplicate and still miss the hero. Substack's is an auto-generated social card with the headline burned in. Revisit only if the logs show a class of sites worth catching.
+- 🟡 Placed below the `Source:` line and above the first heading, before image import, so it stores in Notion and degrades to a hotlink by exactly the path body images use.
+- 🟡 `lead_image_found` / `lead_image_skipped_duplicate` / `lead_image_none` / `lead_image_rejected` — the last two matter most: they are the only way to tell "this site has no hero" from "the exclusions are too tight".
+- 🟡 19 tests, including the dedupe, both no-op modes, and the guarantee that a lead image can never fail a clip.
+- ⬜ **Ships as `LEAD_IMAGE_MODE=detect`** — selection runs and logs, nothing is written. Flip to `insert` after reading the logs from a spread of real clips. ⚠️ A Netlify env change needs a redeploy before live functions see it.
+
+**Detect mode has already earned itself**, before deploying: a substring match on `newsletter` in the chrome exclusions rejected *every* Substack hero, because Substack labels the article element itself `newsletter-post`. Found by running selection over a real post. Fixed, and an `<article>`/`<main>` element is now never read as chrome whatever its classes say.
+
+Verified against live markup, fetched 2026-08-14:
+
+| Site | Result |
+|---|---|
+| TechCrunch (repro) | Hero found above the `<h1>`, credit line captured, both site logos rejected. Not a duplicate of either body image. |
+| Ars Technica | Hero found ahead of the first paragraph, 1920×1080, nothing rejected. |
+| Noahpinion (Substack) | Hero found with its Unsplash credit; five avatars rejected as too small. |
+| Astral Codex Ten | No candidate — the post genuinely has no images. The `og:image` social card was correctly not used. |
+| MDN | No candidate, nothing rejected. |
+
+**Done when:** the flag is flipped to `insert` and a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. Then, and not before, `TOOL-BRIEF.md` §5 gains a line saying a lead image above the article body is captured — and the Notion mirror is re-synced.
+
+---
+
 ## Backlog
 
 Discovered work goes here rather than getting fixed in place.
@@ -228,6 +256,14 @@ Mitigated by detecting a cold container (handler entered within 1.5s of module l
 - **Table cells hold rich text only** (a Notion constraint). Block-level content inside a cell is flattened to text.
 - **Images inside table cells are dropped from the cell** — cells can't contain image blocks. Currently no fallback; if this shows up in a real article, emit the image below the table.
 - List nesting deeper than 2 levels is flattened to level 2, not dropped.
+
+**Readability drops captioned images on Substack — found while building the lead-image work (2026-08-14):**
+
+Not the lead image, and not fixed here. On a real Noahpinion post, four content images sit inside `div.body.markup`; the converted body holds **two**. The two that vanish are exactly the two carrying a `<figcaption>` — the credit lines "Photo by Joe Dudeck" and "Illustrative diagram adapted from Lennart Heim" appear twice in the raw HTML and zero times in the extracted content, along with every `captioned-image-container`. So Readability is discarding the captioned figures wholesale, not just their captions.
+
+This is silent content loss on a site that is already a known-awkward source (it also ate the headings and the footnotes). Same shape as those: the clip reports success and the page looks fine. Worth fixing by the same technique — rebuild or rescue the figures before Readability scores them — but it is a separate change from the hero, and it needs its own evidence about how many sites are affected.
+
+One consequence worth knowing meanwhile: because the hero on that post is one of the dropped images, the lead-image step inserts it rather than deduping it. Correct today, and self-correcting if this is ever fixed — the dedupe will simply start catching it.
 
 **Ideas, unprioritised:**
 

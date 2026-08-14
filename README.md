@@ -41,6 +41,7 @@ What it deliberately does **not** do: create pages, set properties, categorise, 
 | `CLIP_SHARED_SECRET` | yes | Endpoint authentication. **Secret.** |
 | `RESOURCES_DATA_SOURCE_ID` | no | Defaults to the WDB \| Resources data source |
 | `NOTION_API_VERSION` | no | Defaults to the pinned current version |
+| `LEAD_IMAGE_MODE` | no | `off` · `detect` (default — logs the hero it would insert, writes nothing) · `insert` |
 
 Secrets live in Netlify environment variables and in a local `.env`. Never in the repo.
 
