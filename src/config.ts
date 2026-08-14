@@ -88,4 +88,11 @@ export const TUNABLES = {
 
   /** How long clip_article waits after dispatch before answering. */
   dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 20_000),
+
+  /**
+   * How long to wait for a dispatched run to plant its progress marker before
+   * concluding it isn't running. Until that marker appears, anything on the
+   * page belongs to a previous clip and must not be reported as this one's.
+   */
+  runStartWaitMs: num("RUN_START_WAIT_MS", 8000),
 } as const;

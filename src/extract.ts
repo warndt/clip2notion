@@ -11,6 +11,11 @@ import { JSDOM } from "jsdom";
 import { TUNABLES } from "./config";
 import { errors } from "./errors";
 
+export interface Footnote {
+  number: string;
+  html: string;
+}
+
 export interface ExtractedArticle {
   title: string | null;
   byline: string | null;
@@ -19,6 +24,7 @@ export interface ExtractedArticle {
   contentHtml: string;
   textLength: number;
   finalUrl: string;
+  footnotes: Footnote[];
 }
 
 // --- Fetch -----------------------------------------------------------------
@@ -235,6 +241,72 @@ const PAYWALL_PHRASES = [
   "become a member to read", "log in to continue", "start your free trial",
 ];
 
+/**
+ * Clean the document before Readability sees it.
+ *
+ * Readability scores elements and discards what looks like furniture. Substack
+ * buries an anchor-link widget — a nested div containing a `<button>` — inside
+ * every heading, and that is enough for the whole heading to be scored as
+ * boilerplate and dropped. The result is an article whose section structure has
+ * silently vanished while the prose survives, which reads as one long essay
+ * rather than a broken clip.
+ *
+ * Verified on a real Substack post: 9 headings before this runs, 0 after
+ * Readability without it.
+ */
+function stripHeadingWidgets(doc: Document): void {
+  for (const heading of Array.from(doc.querySelectorAll("h1, h2, h3, h4, h5, h6"))) {
+    const text = (heading.textContent ?? "").trim();
+    if (!text) continue;
+
+    // Rebuilt rather than edited in place: the widget markup is only half the
+    // problem, and Readability also weighs a heading's own attributes. A plain
+    // element carrying nothing but its text gives it nothing to score against.
+    const clean = doc.createElement(heading.tagName.toLowerCase());
+    clean.textContent = text;
+    heading.replaceWith(clean);
+  }
+}
+
+/**
+ * Pull footnote bodies out before Readability discards them.
+ *
+ * Footnotes are frequently substantive argument rather than bare citations, so
+ * losing them loses article text. Readability drops the container along with
+ * the comments and subscribe furniture, which leaves the inline markers behind
+ * as orphaned digits pointing at nothing.
+ *
+ * Read from the original document, because Readability mutates what it is given.
+ */
+function collectFootnotes(doc: Document): Footnote[] {
+  const found: Footnote[] = [];
+  const seen = new Set<string>();
+
+  const containers = doc.querySelectorAll(
+    "div.footnote, li.footnote, .footnotes li, section.footnotes li, ol.footnotes > li",
+  );
+
+  for (const container of Array.from(containers)) {
+    const body = container.querySelector(".footnote-content") ?? container;
+    const html = body.innerHTML?.trim() ?? "";
+    if (!html) continue;
+
+    const number =
+      container.querySelector(".footnote-number")?.textContent?.trim() ||
+      container.getAttribute("id")?.replace(/\D+/g, "") ||
+      String(found.length + 1);
+
+    // Some pages render the same footnote twice (inline popup plus endnote).
+    const key = `${number}:${html.slice(0, 120)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    found.push({ number, html });
+  }
+
+  return found;
+}
+
 function meta(doc: Document, selectors: string[]): string | null {
   for (const selector of selectors) {
     const el = doc.querySelector(selector);
@@ -273,6 +345,10 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
       'meta[name="date"]', 'meta[itemprop="datePublished"]', "time[datetime]",
     ]),
   );
+
+  // Both of these read the document before Readability mutates it.
+  const footnotes = collectFootnotes(doc);
+  stripHeadingWidgets(doc);
 
   const freeFlag = meta(doc, ['meta[name="isAccessibleForFree"]', 'meta[itemprop="isAccessibleForFree"]']);
   const declaredPaywalled =
@@ -313,5 +389,6 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
     contentHtml: parsed.content,
     textLength,
     finalUrl,
+    footnotes,
   };
 }

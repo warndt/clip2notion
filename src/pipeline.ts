@@ -18,7 +18,7 @@ import { ClipError, errors, toClipError } from "./errors";
 import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
-  clipHeader, collectImageBlocks, errorCallout, htmlToBlocks, statusCallout,
+  clipHeader, collectImageBlocks, errorCallout, footnoteBlocks, htmlToBlocks, statusCallout,
   ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER, type Block,
 } from "./blocks";
 import {
@@ -76,6 +76,28 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
     };
   }
 
+  /**
+   * No marker of any kind — but that is not the same as an empty page, and
+   * saying "nothing was clipped" about a page holding content is the most
+   * dangerous thing this function can do. The caller is told a NOT_STARTED page
+   * needs a fresh clip *without* `force`, which appends a second copy of the
+   * article onto a page that already has one.
+   *
+   * A forced re-clip deletes the old blocks one at a time, and the header goes
+   * first, so there is a real window in which content exists with no header
+   * above it. Content without a marker therefore reads as "still working",
+   * never as "nothing here".
+   */
+  const substantive = children.filter(
+    (block) => block.type !== "divider" && blockPlainText(block).trim().length > 0,
+  );
+  if (substantive.length > 0) {
+    return {
+      state: "in_progress",
+      detail: `Page holds ${substantive.length} block(s) but no clip header — a clip is probably mid-write.`,
+    };
+  }
+
   return { state: "not_started" };
 }
 
@@ -119,6 +141,55 @@ export async function awaitClipSettled(
   }
 
   return status;
+}
+
+/**
+ * Wait for the run identified by `clipId` — not for whatever happens to be on
+ * the page right now.
+ *
+ * `clip_article` dispatches and then watches, so on the first look the previous
+ * clip may still be sitting there untouched. Reporting that is how a re-clip
+ * came back "CLIPPED — this is a confirmed result" seconds after being asked to
+ * replace the very clip it was describing.
+ *
+ * So this waits for *our* progress marker to appear before it will believe any
+ * terminal state. If the marker never shows up in time, the honest answer is
+ * "started, outcome unknown" rather than a borrowed verdict.
+ */
+export async function awaitOwnRun(
+  pageId: string,
+  config: Config,
+  clipId: string,
+  budgetMs: number,
+): Promise<ClipStatus | null> {
+  const client = new NotionClient(config, clipId);
+  await client.assertPageInDataSource(pageId);
+
+  const deadline = Date.now() + budgetMs;
+  const startDeadline = Date.now() + Math.min(TUNABLES.runStartWaitMs, budgetMs);
+  let started = false;
+
+  while (Date.now() < deadline) {
+    const children = await client.listChildren(pageId);
+
+    if (!started) {
+      started = children.some(
+        (block) => block.type === "callout" && blockPlainText(block).includes(clipId),
+      );
+      // The marker is written before any other work, so if it has not appeared
+      // by now this run is not the one shaping the page.
+      if (!started && Date.now() > startDeadline) return null;
+    }
+
+    if (started) {
+      const status = deriveClipStatus(children);
+      if (status.state !== "in_progress") return status;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, TUNABLES.statusPollIntervalMs));
+  }
+
+  return started ? { state: "in_progress" } : null;
 }
 
 export interface ClipRequest {
@@ -166,12 +237,7 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
 
   const existing = await client.listChildren(request.pageId);
 
-  if (request.force) {
-    // Clear before the new progress callout is written, or it would be caught
-    // by the sweep it is standing in front of.
-    const removed = await clearPreviousClip(client, existing, request.url, clipId);
-    log("info", clipId, "force_recliped", { removed_blocks: removed });
-  } else {
+  if (!request.force) {
     if (existing.some((block) => blockLinksTo(block, request.url))) {
       log("info", clipId, "already_clipped", { page_id: request.pageId });
       return "already_clipped";
@@ -186,8 +252,25 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
     }
   }
 
+  // The progress callout goes down FIRST — before a forced re-clip deletes
+  // anything. Deleting a long clip removes a block at a time at roughly three
+  // per second, and the header goes first, so without this the page can hold
+  // partially deleted content and no marker for tens of seconds. Anything
+  // reading it during that window would see content with no header and no
+  // marker, which is indistinguishable from a page mid-write.
   const statusResult = await client.appendChildren(request.pageId, [statusCallout(clipId)]);
   const statusBlockId = statusResult[0]?.id ?? null;
+
+  if (request.force) {
+    const removed = await clearPreviousClip(
+      client,
+      existing,
+      request.url,
+      clipId,
+      statusBlockId,
+    );
+    log("info", clipId, "force_recliped", { removed_blocks: removed });
+  }
 
   let contentWritten = false;
 
@@ -216,7 +299,7 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
       url: request.url,
     });
 
-    const tail = [...blocks];
+    const tail = [...blocks, ...footnoteBlocks(article.footnotes, article.finalUrl)];
     if (truncatedAtBlockCap) {
       tail.push(
         errorCallout(
@@ -288,6 +371,7 @@ async function clearPreviousClip(
   existing: NotionBlockRecord[],
   url: string,
   clipId: string,
+  protectedBlockId: string | null = null,
 ): Promise<number> {
   const headerIndex = existing.findIndex((block) => blockLinksTo(block, url));
 
@@ -301,6 +385,9 @@ async function clearPreviousClip(
   }
 
   for (const block of doomed) {
+    // Never sweep away this run's own progress marker — it is standing in front
+    // of the very deletion it announces.
+    if (protectedBlockId && block.id === protectedBlockId) continue;
     try {
       await client.deleteBlock(block.id);
     } catch (err) {

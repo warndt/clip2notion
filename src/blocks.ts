@@ -793,6 +793,53 @@ export function errorCallout(message: string, clipId: string): Block {
   };
 }
 
+/**
+ * Render footnote bodies as a trailing section.
+ *
+ * Footnotes are often substantive argument rather than bare citation, so
+ * dropping them loses article text. The inline markers survive extraction as
+ * bare digits, so without this the reader gets orphaned numbers pointing at
+ * nothing.
+ */
+export function footnoteBlocks(
+  footnotes: Array<{ number: string; html: string }>,
+  baseUrl: string,
+): Block[] {
+  if (footnotes.length === 0) return [];
+
+  const blocks: Block[] = [
+    { object: "block", type: "divider", divider: {} },
+    ...blocksFromRichText("heading_3", [makeRichText("Footnotes", {}, null)], {
+      is_toggleable: false,
+    }),
+  ];
+
+  const dom = new JSDOM("<!DOCTYPE html><body></body>");
+  const { document } = dom.window;
+
+  for (const footnote of footnotes) {
+    const holder = document.createElement("div");
+    holder.innerHTML = footnote.html;
+
+    const body = walkChildren(holder, { baseUrl, depth: 0 });
+    const label = makeRichText(`${footnote.number}. `, { bold: true }, null);
+
+    const first = body[0];
+    if (first && first.type === "paragraph") {
+      const payload = first["paragraph"] as { rich_text: RichText[] };
+      payload.rich_text = splitRichText([label, ...payload.rich_text]).slice(
+        0,
+        TUNABLES.richTextArrayLimit,
+      );
+      blocks.push(...body);
+    } else {
+      blocks.push(...blocksFromRichText("paragraph", [label]), ...body);
+    }
+  }
+
+  return blocks;
+}
+
 export interface HeaderFields {
   title?: string | null;
   siteName?: string | null;
