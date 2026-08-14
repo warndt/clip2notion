@@ -113,4 +113,21 @@ export const TUNABLES = {
    * adding another one cannot silently reintroduce the timeout.
    */
   syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 6000),
+
+  /**
+   * Ceiling when the container has just cold-started.
+   *
+   * Netlify's 10s clock covers container initialisation, but a handler can only
+   * measure from its own entry — so on a cold start several seconds are already
+   * gone before any of this code runs. `mcp.ts` transitively imports jsdom,
+   * which makes that init expensive.
+   *
+   * Measured cold: ~6s for a call that does no waiting at all. Adding a full
+   * wait on top of that is what produced intermittent "server isn't responding"
+   * errors mid-poll.
+   */
+  coldStartBudgetMs: num("COLD_START_BUDGET_MS", 2500),
+
+  /** A handler entered within this long of module load is on a cold container. */
+  coldStartWindowMs: num("COLD_START_WINDOW_MS", 1500),
 } as const;
