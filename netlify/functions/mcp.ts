@@ -91,7 +91,11 @@ function toolText(id: JsonRpcRequest["id"], text: string, isError = false): Resp
  * survive the trip and prose is all the caller actually receives.
  */
 function toolFailure(id: JsonRpcRequest["id"], text: string): Response {
-  return toolText(id, `CLIP FAILED — nothing was written.\n\n${text}`, true);
+  // Opens with a STATUS token like every other response, so a caller can match
+  // on the first line without a special case. REJECTED rather than FAILED
+  // because nothing reached the page: there is no error callout to read, and
+  // the cause is in the request rather than in the article.
+  return toolText(id, `STATUS: REJECTED\n\nCLIP FAILED — nothing was written.\n\n${text}`, true);
 }
 
 // --- Tools -----------------------------------------------------------------

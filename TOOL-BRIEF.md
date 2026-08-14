@@ -107,6 +107,7 @@ The **first line** of every response is a stable token. Match on that, not on th
 | `STATUS: CLIPPED` | Confirmed on the page. | Safe to report success |
 | `STATUS: FAILED` | Error callout on the page, with a reason. | Relay the reason verbatim |
 | `STATUS: NOT_STARTED` | Page is empty. | Must not report success |
+| `STATUS: REJECTED` | The request was refused before anything was written — bad page id, bad URL, page outside Resources, or Notion unreachable. | Relay the reason. Nothing reached the page, so there is no error callout to read. |
 
 Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive. This is why every failure leads with an unmistakable phrase rather than relying on a flag.
 
@@ -122,7 +123,13 @@ Each exists because getting it wrong produces a confidently-delivered wrong answ
 It means the work started. It runs in the background and can still fail afterwards. Never report success on the strength of it — confirm with `clip_status` first.
 
 **2. A transport error from `clip_article` does NOT mean nothing happened.**
-The work is dispatched *before* the reply is sent. If the tool call times out or reports the server as not responding, the clip may well be running. **Never call `clip_article` a second time after such an error.** Call `clip_status` and let the page say what actually happened. Retrying blindly is how a page ends up with the article on it twice.
+The work is dispatched *before* the reply is sent. If the tool call times out or reports the server as not responding, the clip may well be running. **Never call `clip_article` a second time on the strength of an error alone.** Call `clip_status` first and let the page say what actually happened:
+
+- `NOT_STARTED` → nothing was written, so calling `clip_article` again is safe. No `force` — there is nothing to replace.
+- `IN_PROGRESS` → it is running. Keep calling `clip_status`.
+- `CLIPPED` → it worked despite the error. Report success.
+
+Retrying `clip_article` *without* that check is how a page ends up with the article on it twice. The first call after a quiet spell is the one most likely to error this way, and recovering through `clip_status` is expected rather than exceptional.
 
 **3. On `IN_PROGRESS`, call `clip_status` again — do not ask the user.**
 The tool waits server-side, so calling it again *is* how you wait. A long illustrated article may need several calls. Only after roughly ten should the caller say the run appears to have died. Never ask the user to say "check again"; chasing a background job is not the user's work.
