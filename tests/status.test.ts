@@ -39,8 +39,22 @@ test("an empty page is not_started", () => {
   assert.equal(deriveClipStatus([]).state, "not_started");
 });
 
-test("a page with only unrelated content is not_started", () => {
-  assert.equal(deriveClipStatus([paragraph]).state, "not_started");
+test("a page holding content but no markers is NOT reported as not_started", () => {
+  // The P0 defect. A forced re-clip deletes the old blocks one at a time and
+  // the header goes first, so there is a real window where content exists with
+  // no header above it. Calling that "nothing was clipped" steers the caller
+  // into a fresh non-force clip, which appends a second copy of the article.
+  const status = deriveClipStatus([paragraph]);
+
+  assert.notEqual(status.state, "not_started", "content without a marker must never read as empty");
+  assert.equal(status.state, "in_progress");
+});
+
+test("only a genuinely empty page is not_started", () => {
+  assert.equal(deriveClipStatus([]).state, "not_started");
+
+  const divider = record({ object: "block", type: "divider", divider: {} }, "div1");
+  assert.equal(deriveClipStatus([divider]).state, "not_started", "a bare divider is not content");
 });
 
 test("a progress callout means in_progress", () => {
@@ -91,7 +105,9 @@ test("a paragraph that merely mentions a link is not mistaken for the header", (
     "decoy",
   );
 
-  assert.equal(deriveClipStatus([decoy]).state, "not_started");
+  // Not "clipped": a stray link is not a clip header. It reads as in_progress
+  // now rather than not_started, because content is present.
+  assert.equal(deriveClipStatus([decoy]).state, "in_progress");
 });
 
 test("the header must carry a link, not just the prefix text", () => {
@@ -104,5 +120,7 @@ test("the header must carry a link, not just the prefix text", () => {
     "linkless",
   );
 
-  assert.equal(deriveClipStatus([linkless]).state, "not_started");
+  // The prefix alone must not count as a header — a clip header always carries
+  // the source link, which is what makes it the idempotency key.
+  assert.equal(deriveClipStatus([linkless]).state, "in_progress");
 });

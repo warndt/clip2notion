@@ -32,7 +32,7 @@ import { loadConfig, type Config } from "../../src/config";
 import { ClipError } from "../../src/errors";
 import { assertSafeUrl } from "../../src/extract";
 import { log, newClipId } from "../../src/log";
-import { awaitClipSettled, type ClipStatus } from "../../src/pipeline";
+import { awaitClipSettled, awaitOwnRun, type ClipStatus } from "../../src/pipeline";
 import { TUNABLES } from "../../src/config";
 import { normalizePageId, secretMatches } from "../../src/request";
 
@@ -232,12 +232,13 @@ async function handleClipArticle(
 
   log("info", clipId, "mcp_dispatched_waiting", { page_id: pageId });
 
-  // Wait for the work rather than handing the caller a job to chase. Most
-  // articles settle inside this window, so the common case is one tool call
-  // that returns a real answer.
-  let settled: ClipStatus;
+  // Wait for the work rather than handing the caller a job to chase — but wait
+  // for OUR run specifically. On the first look a forced re-clip still shows the
+  // previous clip, and reporting that would confirm an outcome for work that
+  // hasn't happened.
+  let settled: ClipStatus | null;
   try {
-    settled = await awaitClipSettled(pageId, config, clipId, TUNABLES.dispatchWaitBudgetMs);
+    settled = await awaitOwnRun(pageId, config, clipId, TUNABLES.dispatchWaitBudgetMs);
   } catch {
     return toolText(
       id,
@@ -245,6 +246,17 @@ async function handleClipArticle(
         `The clip was started, but its progress could not be read back just now. Call ` +
         `clip_status with page_id ${pageId} to find out what happened. Do not tell the user ` +
         `it worked until you have.`,
+    );
+  }
+
+  if (settled === null) {
+    return toolText(
+      id,
+      `STATUS: STARTED\n\n` +
+        `The clip was dispatched, but it has not yet shown up as running on the page, so ` +
+        `nothing here is confirmation of anything.\n\n` +
+        `Call clip_status with page_id ${pageId} to find out what actually happened. Do not ` +
+        `tell the user the article was clipped until it returns CLIPPED.`,
     );
   }
 
@@ -304,13 +316,17 @@ function statusResponse(
 ): Response {
   switch (status.state) {
     case "clipped":
+      // Says only what was actually checked. An earlier version asserted the
+      // images were stored in Notion, which nothing here verifies — and it said
+      // so about a run whose images were in fact broken.
       return toolText(
         id,
         `STATUS: CLIPPED\n\n` +
-          `The article is on the page in full, with its images stored in Notion.\n` +
+          `The page was read and the article is there.\n` +
           `Source: ${status.sourceUrl ?? "(link present)"}\n\n` +
-          `This is a confirmed result: the page was read and the article is there. It is safe ` +
-          `to tell the user the clip succeeded.`,
+          `It is safe to tell the user the clip succeeded. This confirms the article was ` +
+          `written; it does not separately verify every image, so if the user reports a ` +
+          `broken image, relay that rather than insisting it worked.`,
       );
 
     case "in_progress":
