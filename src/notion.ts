@@ -104,7 +104,11 @@ export class NotionClient {
    * Fails closed: an unexpected parent shape is a rejection, not a shrug.
    */
   async assertPageInDataSource(pageId: string): Promise<void> {
-    let page: { parent?: { type?: string; data_source_id?: string; database_id?: string } };
+    let page: {
+      parent?: { type?: string; data_source_id?: string; database_id?: string };
+      archived?: boolean;
+      in_trash?: boolean;
+    };
     try {
       page = await this.request("GET", `/pages/${pageId}`);
     } catch (err) {
@@ -112,6 +116,12 @@ export class NotionClient {
         throw errors.invalidTarget(`Could not read page ${pageId}: ${err.message}`);
       }
       throw err;
+    }
+
+    // A trashed page still reports its parent, so this has to be checked
+    // separately or a deleted page reads as a valid target.
+    if (page.in_trash || page.archived) {
+      throw errors.invalidTarget(`Page ${pageId} is in the Notion trash`);
     }
 
     const parent = page.parent ?? {};
