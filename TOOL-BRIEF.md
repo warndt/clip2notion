@@ -1,6 +1,18 @@
-# clip2notion — brief for whoever writes the system prompt
+# clip2notion — tool reference
 
-Everything about the clipping tool that a system prompt needs to encode, plus what to do when it misbehaves. Assumes you already know the Resources database, Areas, Tags and the rest of the workflow — this covers only the tool.
+**Last updated: 2026-08-14.** Describes the connector as deployed on that date. If the tool changes, this is the document to change with it.
+
+Covers only the clipping tool — not the Resources database, Areas, Tags, or the rest of the workflow.
+
+## How to use this document
+
+It has two audiences.
+
+**A Claude session doing the clipping.** Read this when something goes wrong, or when you need a detail the system prompt doesn't carry — a parameter, a status value, a symptom you don't recognise. Sections 2, 3, 5, 6 and 8 are for you.
+
+**Whoever writes or revises the system prompt.** Sections 1 and 4 are the substance. Section 7 is setup and belongs to whoever configures the connector, not to the caller.
+
+**Section 4 is deliberately duplicated in the system prompt itself.** Those five rules are load-bearing: each one, if got wrong, produces a confidently reported clip that never happened, or an article on the page twice. They must not depend on this document being fetched, reachable, or current. If you are revising the prompt and thinking of replacing them with a pointer here — don't. Reference material is for recovering from problems, not for preventing them.
 
 ---
 
@@ -54,9 +66,9 @@ Failure responses also set `isError`, but **do not depend on it** — it does no
 
 ---
 
-## 4. The five rules that must be in the system prompt
+## 4. The five rules — keep these inline in the system prompt
 
-These exist because each one, if got wrong, produces a confidently-delivered wrong answer or duplicated content. They are the whole point.
+Each exists because getting it wrong produces a confidently-delivered wrong answer or duplicated content. **Do not reduce these to a pointer at this document.** A caller that hasn't read them must still follow them.
 
 **1. `clip_article` succeeding does NOT mean the article was clipped.**
 It means the work started. It runs in the background and can still fail afterwards. Never report success on the strength of it — confirm with `clip_status` first.
@@ -101,7 +113,9 @@ Never on a first attempt. It deletes the existing clip before rewriting.
 
 ---
 
-## 7. Connector setup (for whoever configures it)
+## 7. Connector setup — operator only
+
+**Not for the calling session.** Nothing here is actionable from a chat; it is for whoever configures the connector in claude.ai settings.
 
 URL form — **the token is a path segment, not a query parameter**:
 
