@@ -36,10 +36,11 @@ export interface Block {
   [key: string]: unknown;
 }
 
-/** Marker text used to find our own blocks again on a retry or a forced re-clip. */
-export const STATUS_MARKER = "Clipping in progress";
-export const ERROR_MARKER = "Clipping failed";
-export const HEADER_PREFIX = "Source:";
+// Markers live in their own dependency-free module so that reading a page's
+// state never pulls in this file, and with it jsdom. Imported for use below and
+// re-exported, because this is where the blocks that carry them are built.
+import { ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER } from "./markers";
+export { ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER };
 
 interface Ctx {
   baseUrl: string;

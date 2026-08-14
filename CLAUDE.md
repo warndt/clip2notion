@@ -54,11 +54,16 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │       └── clip-background.ts      # The worker. 15 minutes, always answers 202
 │
 ├── src/
+│   │   # --- light: no jsdom. Safe to import from a synchronous function ---
 │   ├── config.ts                   # Env vars + every tunable, all env-overridable
 │   ├── errors.ts                   # ClipError taxonomy — see Data Formats
 │   ├── log.ts                      # Structured JSON logging, keyed by clip_id
-│   ├── request.ts                  # Auth + request parsing, shared by both entry points
+│   ├── markers.ts                  # Text markers written into pages and read back
+│   ├── request.ts                  # Auth + request parsing, shared by all entry points
+│   ├── url.ts                      # Fetch-target safety check (SSRF guard)
 │   ├── notion.ts                   # API client, parent check, append, file upload
+│   ├── status.ts                   # Reading and waiting on a clip's state
+│   │   # --- heavy: pulls jsdom. Background function only ---
 │   ├── extract.ts                  # Fetch + Readability + paywall/bot-block detection
 │   ├── blocks.ts                   # DOM walk → Notion blocks, rich text, tables, images
 │   └── pipeline.ts                 # Orchestration: idempotency, status, image import, append
@@ -83,6 +88,7 @@ These bound any implementation. Several of them fail late and silently in produc
 ### Netlify
 
 - Synchronous functions time out at **10s** (26s on Pro, by request). Background functions (`-background` filename suffix) run up to **15 minutes** but return `202` immediately and cannot report a result in the HTTP response.
+- ⚠️ **Keep jsdom out of the synchronous functions.** `src/` is split into a light half (`config`, `errors`, `log`, `markers`, `request`, `url`, `notion`, `status`) and a heavy half that pulls jsdom and Readability (`extract`, `blocks`, `pipeline`). `mcp.ts` and `clip.ts` must import only from the light half. Measured: `mcp` bundles to **38KB** that way and **6.5MB** if it reaches the converter — seconds of cold start, against a 10s budget that includes container init. `status.ts` and `url.ts` exist for exactly this reason; do not "tidy" them back into `pipeline.ts` and `extract.ts`. Check with `npx esbuild netlify/functions/mcp.ts --bundle --platform=node --outfile=/tmp/x.js` and look at the size.
 - ⚠️ **`mcp.ts` is synchronous, so the 10s ceiling applies to it.** It blocks briefly waiting for a clip to settle, and those budgets live in `TUNABLES.syncFunctionBudgetMs`. Exceeding the ceiling does not degrade gracefully: Netlify kills the function mid-flight and the caller sees *"the connector's server isn't responding"* — indistinguishable from the whole service being down. This has already happened once, from budgets set to 20s. Every wait loop measures against `enteredAt`, the moment the request arrived; keep it that way when adding another.
 - **Netlify retries a failed background function after 1 minute, and again 2 minutes later.** A run that fails after partially appending content will otherwise duplicate that content. This is the single most important failure mode in the project.
 - Consequence: **only throw from the background handler for genuinely transient failures.** A deterministic failure (paywall, unextractable content, bad page id) must be recorded in the page, logged, and then returned as a success to Netlify — otherwise it gets retried twice for no reason.
