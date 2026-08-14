@@ -313,7 +313,12 @@ async function handleClipStatus(
     );
   } catch (err) {
     if (err instanceof ClipError && err.code === "INVALID_TARGET") {
-      return toolFailure(id, "That page is not in the WDB | Resources database.");
+      return toolFailure(
+        id,
+        "That page can't be read — it is either not in the WDB | Resources database, or it " +
+          "has been deleted and is in the Notion trash. Retrying will not help; check the " +
+          "page id.",
+      );
     }
     return toolFailure(
       id,
