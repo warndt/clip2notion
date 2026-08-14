@@ -155,6 +155,7 @@ async function handleClipArticle(
   config: Config,
   clipId: string,
   origin: string,
+  enteredAt: number,
 ): Promise<Response> {
   const pageId = normalizePageId(args["page_id"]);
   if (!pageId) {
@@ -238,7 +239,13 @@ async function handleClipArticle(
   // hasn't happened.
   let settled: ClipStatus | null;
   try {
-    settled = await awaitOwnRun(pageId, config, clipId, TUNABLES.dispatchWaitBudgetMs);
+    settled = await awaitOwnRun(
+      pageId,
+      config,
+      clipId,
+      TUNABLES.dispatchWaitBudgetMs,
+      enteredAt,
+    );
   } catch {
     return toolText(
       id,
@@ -280,6 +287,7 @@ async function handleClipStatus(
   args: Record<string, unknown>,
   config: Config,
   clipId: string,
+  enteredAt: number,
 ): Promise<Response> {
   const pageId = normalizePageId(args["page_id"]);
   if (!pageId) {
@@ -288,7 +296,13 @@ async function handleClipStatus(
 
   let status: ClipStatus;
   try {
-    status = await awaitClipSettled(pageId, config, clipId);
+    status = await awaitClipSettled(
+      pageId,
+      config,
+      clipId,
+      TUNABLES.statusWaitBudgetMs,
+      enteredAt,
+    );
   } catch (err) {
     if (err instanceof ClipError && err.code === "INVALID_TARGET") {
       return toolFailure(id, "That page is not in the WDB | Resources database.");
@@ -438,6 +452,9 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
   }
 
+  // Stamped at entry so every wait loop measures against the platform's 10s
+  // kill, not against its own start.
+  const enteredAt = Date.now();
   const clipId = newClipId();
 
   let config: Config;
@@ -532,9 +549,9 @@ export default async function handler(req: Request): Promise<Response> {
 
         switch (params["name"]) {
           case CLIP_ARTICLE_TOOL.name:
-            return await handleClipArticle(id, args, config, clipId, origin);
+            return await handleClipArticle(id, args, config, clipId, origin, enteredAt);
           case CLIP_STATUS_TOOL.name:
-            return await handleClipStatus(id, args, config, clipId);
+            return await handleClipStatus(id, args, config, clipId, enteredAt);
           default:
             return rpcError(id, -32602, `Unknown tool: ${String(params["name"])}`);
         }

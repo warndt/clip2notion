@@ -80,19 +80,31 @@ export const TUNABLES = {
   /**
    * How long a status call may block waiting for a clip to settle.
    *
-   * Kept well short of any plausible MCP client timeout: the point is that a
-   * typical clip completes inside one tool call, not that every clip does.
+   * ⚠️ **A synchronous Netlify function is killed at 10 seconds.** These budgets
+   * must leave room for the Notion round trips either side of the wait, or the
+   * function is terminated mid-flight and the caller sees "the server isn't
+   * responding" — which reads as an outage rather than as a clip in progress.
+   *
+   * This was set to 20s once and did exactly that. The waiting is a convenience;
+   * exceeding the platform limit to get it is not a trade worth making.
    */
-  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 20_000),
-  statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 2500),
+  statusWaitBudgetMs: num("STATUS_WAIT_BUDGET_MS", 6000),
+  statusPollIntervalMs: num("STATUS_POLL_INTERVAL_MS", 1500),
 
-  /** How long clip_article waits after dispatch before answering. */
-  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 20_000),
+  /** How long clip_article waits after dispatch before answering. Same 10s ceiling. */
+  dispatchWaitBudgetMs: num("DISPATCH_WAIT_BUDGET_MS", 6000),
 
   /**
    * How long to wait for a dispatched run to plant its progress marker before
    * concluding it isn't running. Until that marker appears, anything on the
    * page belongs to a previous clip and must not be reported as this one's.
    */
-  runStartWaitMs: num("RUN_START_WAIT_MS", 8000),
+  runStartWaitMs: num("RUN_START_WAIT_MS", 4000),
+
+  /**
+   * Hard ceiling on time spent inside a synchronous function, measured from
+   * entry. Belt and braces against the 10s kill: every wait loop checks it, so
+   * adding another one cannot silently reintroduce the timeout.
+   */
+  syncFunctionBudgetMs: num("SYNC_FUNCTION_BUDGET_MS", 7500),
 } as const;
