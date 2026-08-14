@@ -183,6 +183,12 @@ Still true, and narrow: if body-bearing templates are ever added to Resources, t
 
 Two consecutive `notion-fetch` calls on the same page returned an identical `as of` timestamp, so the second may have been served from cache rather than being a genuine re-read. This matters for any "fetch twice and compare" technique, including checking whether a background clip has progressed. `clip_status` goes through the Notion REST API rather than the MCP connector, so it is not affected — but a caller re-fetching the page to verify might be.
 
+**Cold starts eat the synchronous budget — mitigated, not solved:**
+
+`mcp.ts` transitively imports jsdom through the converter, so a cold container spends several seconds initialising before any handler code runs. Netlify's 10s clock covers that init; a handler can only measure from its own entry. Measured cold: ~6s for a call doing no waiting at all.
+
+Mitigated by detecting a cold container (handler entered within 1.5s of module load) and using a much smaller wait ceiling, so the total stays clear of the kill. The proper fix is to stop `mcp.ts` pulling jsdom at all — split the status logic and `assertSafeUrl` into modules that don't import the converter or Readability. That is a refactor of working code, so it needs a decision rather than a drive-by.
+
 **Known limitations, shipped deliberately:**
 
 - **`force: true` removes notes added below a clip.** The clip's range is "header to end of page", because the service only ever appends. Anything above the header is untouched. Bounding the range exactly would need a footer marker block on every clip — a permanent visible artifact solving a problem that hasn't happened yet. Revisit if it does.

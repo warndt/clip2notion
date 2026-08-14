@@ -131,8 +131,17 @@ export async function getClipStatus(
  * request arrived, so time already spent on Notion round trips counts against
  * the budget rather than being ignored.
  */
+/**
+ * When this module was first loaded. A handler entering shortly after means the
+ * container had to initialise for this request, and that initialisation counts
+ * against Netlify's 10s clock even though no code here can observe it.
+ */
+const MODULE_LOADED_AT = Date.now();
+
 function deadlineFrom(enteredAt: number, budgetMs: number): number {
-  return Math.min(Date.now() + budgetMs, enteredAt + TUNABLES.syncFunctionBudgetMs);
+  const coldStart = enteredAt - MODULE_LOADED_AT < TUNABLES.coldStartWindowMs;
+  const ceiling = coldStart ? TUNABLES.coldStartBudgetMs : TUNABLES.syncFunctionBudgetMs;
+  return Math.min(Date.now() + budgetMs, enteredAt + ceiling);
 }
 
 export async function awaitClipSettled(

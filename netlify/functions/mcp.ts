@@ -36,6 +36,9 @@ import { awaitClipSettled, awaitOwnRun, type ClipStatus } from "../../src/pipeli
 import { TUNABLES } from "../../src/config";
 import { normalizePageId, secretMatches } from "../../src/request";
 
+/** Same purpose as the copy in pipeline.ts: detect a cold container. */
+const MODULE_LOADED_AT = Date.now();
+
 const SERVER_NAME = "clip2notion";
 const SERVER_VERSION = "1.0.0";
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -492,6 +495,7 @@ export default async function handler(req: Request): Promise<Response> {
   // log `pathname` or `search` here unredacted.
   log("info", clipId, "mcp_request", {
     method: body?.method ?? (parseFailed ? "<unparseable>" : "<none>"),
+    cold_start: enteredAt - MODULE_LOADED_AT < TUNABLES.coldStartWindowMs,
     path: redactPath(requestUrl.pathname),
     token_source: source,
     has_query: requestUrl.search.length > 0,
