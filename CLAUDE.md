@@ -33,8 +33,9 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 ├── CLAUDE.md                       # This file — Claude Code instructions
 ├── ROADMAP.md                      # Feature roadmap and task backlog (source of truth)
 ├── README.md                       # Project overview, setup, and usage
-├── CALLER-PROMPT.md                # The snippet pasted into the calling Claude project.
-│                                   #   Update it whenever the request contract changes.
+├── TOOL-BRIEF.md                   # Tool reference for the calling Claude session and for
+│                                   #   whoever writes its system prompt. Mirrored into a
+│                                   #   Notion page; update both when the contract changes.
 ├── netlify.toml                    # Netlify config: publish dir, functions, redirects, headers
 ├── package.json                    # Dependencies and scripts
 ├── tsconfig.json                   # TypeScript config
@@ -191,7 +192,7 @@ Content-Type: application/json
 - `url` — required. Absolute `http(s)` URL of the article.
 - `force` — optional, default `false`. Delete the previous clip on this page and clip it again. See Idempotency.
 
-**This contract is described in a Claude project prompt** — see `CALLER-PROMPT.md`. Keep it simple and keep it stable: every change here means the caller's prompt has to change too, and a prompt pasted into a Claude project doesn't update itself. Additions must be optional and backwards-compatible, and **any change to this section means updating `CALLER-PROMPT.md` in the same commit.**
+**This contract is documented in `TOOL-BRIEF.md`**, which is mirrored into a Notion page the calling session can read, and summarised in the caller's system prompt. Keep it simple and keep it stable: neither the Notion copy nor a system prompt updates itself. Additions must be optional and backwards-compatible, and **any change to this section means updating `TOOL-BRIEF.md` in the same commit** — plus a note to Wil that the Notion copy and the system prompt need re-syncing.
 
 ### Response
 

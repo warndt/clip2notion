@@ -4,22 +4,22 @@ Fetches a web article and writes its full content — structure intact, images s
 
 Built to replace the Notion Web Clipper browser extension for open-web articles. A Claude session creates the page in the **WDB | Resources** database and sets every property; this service fills in the body.
 
-**Status:** MVP built, not yet deployed or run against Notion. See [ROADMAP.md](ROADMAP.md).
+**Status:** deployed and in use. See [ROADMAP.md](ROADMAP.md) for what's left, all optional.
 
 ---
 
 ## How it's used
 
-A caller `POST`s a page id and a URL with a shared secret in a header. The request is validated synchronously — bad secret, bad page id, or a page outside the Resources database come back as real error codes — then the work runs in the background, reporting its outcome by writing into the page itself: a progress callout while it runs, an error callout if it fails.
+**Through an MCP connector**, from a Claude session in the claude.ai chat interface. That session creates the Resources page and sets its properties, then calls two tools:
 
-```bash
-curl -X POST https://<site>.netlify.app/.netlify/functions/clip \
-  -H "X-Clip-Secret: $CLIP_SHARED_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"page_id": "<notion-page-id>", "url": "https://example.com/article"}'
-```
+- `clip_article(page_id, url, force?)` — starts the clip
+- `clip_status(page_id)` — reports `CLIPPED` / `IN_PROGRESS` / `FAILED` / `NOT_STARTED`
 
-`202` means accepted, not finished — re-fetch the page to see the result. Add `"force": true` to delete an existing clip and run it again.
+`clip_article` returning successfully means the work *started*, not that it finished, so the caller confirms with `clip_status` before reporting anything. The full contract, the rules that keep a caller from reporting a clip that never happened, and a troubleshooting table are in [TOOL-BRIEF.md](TOOL-BRIEF.md).
+
+The connector URL carries the shared secret as a **path segment** — `/mcp/<secret>`, not `?token=`. The query form is accepted by the server but does not survive the trip through claude.ai.
+
+There is also an HTTP endpoint, `POST /.netlify/functions/clip`, kept for testing from a terminal. The chat session cannot use it: its sandbox refuses non-allowlisted hosts, which is why the connector exists.
 
 What it deliberately does **not** do: create pages, set properties, categorise, log into paywalled sites, or rewrite article content.
 
@@ -55,10 +55,12 @@ Proposed structure — parts don't exist yet. Full annotated version in [CLAUDE.
 ├── CLAUDE.md               # Claude Code instructions
 ├── ROADMAP.md              # Feature roadmap and task backlog
 ├── README.md               # This file
+├── TOOL-BRIEF.md           # Tool reference for the calling session (mirrored into Notion)
 ├── netlify.toml            # Netlify config
 ├── public/                 # Static publish dir (404 page only)
 ├── netlify/functions/
-│   ├── clip.ts             # The caller's endpoint — validates, returns real status codes
+│   ├── mcp.ts              # The connector — how the real caller reaches the service
+│   ├── clip.ts             # HTTP endpoint, kept for testing from a terminal
 │   └── clip-background.ts  # The worker — up to 15 minutes, always answers 202
 ├── src/
 │   ├── config.ts           # Env vars and every tunable
@@ -80,6 +82,7 @@ Netlify. `main` auto-deploys.
 
 - Publish directory: `public/`
 - Functions: `netlify/functions/`, bundled by esbuild — no separate build step
-- Two functions: `clip` validates synchronously and returns real status codes, then dispatches to `clip-background` (the `-background` suffix gives it 15 minutes, at the cost of always answering `202`)
+- Three functions: `mcp` serves the connector, `clip` is the equivalent HTTP endpoint for testing, and both dispatch to `clip-background` (the `-background` suffix gives it 15 minutes, at the cost of always answering `202`)
+- ⚠️ `mcp` and `clip` are synchronous, so Netlify kills them at **10 seconds** — including container start. The wait budgets in `TUNABLES` are sized against that; exceeding it looks to the caller like the whole service is down.
 
 ⚠️ Netlify bills by credit and every push deploys, so pushing costs money. Pushes are an explicit decision each time, never automatic.

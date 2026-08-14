@@ -58,7 +58,7 @@ The M2 clips below prove the pipeline; they do **not** prove callability, becaus
 - ✅ **Success criterion met: rejections reach the session specific and actionable.** Verdict: **port to MCP.** Observed from a real claude.ai session, 2026-08-13.
 - 🟡 **Ported.** `netlify/functions/mcp.ts` now serves `clip_article` and `clip_status`, authenticated by a token in the connector URL. The probe is gone; the pipeline is unchanged behind it.
 - 🟡 `src/pipeline.ts` gains `deriveClipStatus` (pure, tested) and `getClipStatus`.
-- 🟡 `CALLER-PROMPT.md` rewritten around the two tools and the dispatch-then-confirm loop.
+- 🟡 Caller documentation rewritten around the two tools and the dispatch-then-confirm loop.
 - 🟡 Deployed, connector re-pointed at `/mcp/<token>`, and a real clip run end to end from a chat session. **The query-string form did not survive** — claude.ai reached the endpoint with no query at all (`has_query: false` in every logged request), so the connector attached but its tools never loaded. A path segment carries the token reliably. Query, `Authorization` and `X-Clip-Secret` are all still accepted.
 
 ### Spike results — how each failure channel actually behaves
@@ -88,7 +88,7 @@ Returning only after the write confirms is not available: a long illustrated art
 
 This turns "did it work" into something the session can *check* rather than *infer from prose*, which is a better guarantee than any wording discipline.
 - 🟡 Ported `runClip` behind the MCP entry point. The pipeline itself is unchanged.
-- 🟡 `CALLER-PROMPT.md` rewritten around the two tools, the dispatch-then-confirm loop, and the full parameter contract.
+- 🟡 `TOOL-BRIEF.md` written as the single caller-facing reference: the two tools, the full parameter contract, the status tokens, the rules that keep a caller from reporting a clip that never happened, and a troubleshooting table. Mirrored into a Notion page the calling session can read.
 
 **Done when:** an article is clipped end to end from a claude.ai chat session, with the browser extension uninstalled. **Met 2026-08-14** — Noahpinion long-form, three images stored in Notion with fresh file objects, section headings and footnotes intact, article present exactly once after a forced re-clip, images confirmed rendering.
 
@@ -102,7 +102,7 @@ This turns "did it work" into something the session can *check* rather than *inf
 
 The actual test plan. Nothing here is speculative work — it's finding out what breaks.
 
-- 🟡 Write the calling snippet for the Claude project prompt — `CALLER-PROMPT.md`. **Superseded, see M3.**
+- 🟡 Write the calling snippet for the Claude project prompt. **Superseded — the caller reaches the service over MCP, not HTTP. See M3.**
 - 🟡 Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
 - 🟡 Deploy
 

@@ -48,6 +48,17 @@ Takes **the page id — there is no job id**. Status is derived from the page's 
 
 Both tools wait a few seconds server-side before answering, so a short article often completes inside a single call.
 
+### What `force: false` actually guards against
+
+The guard is **per-URL, not per-page**:
+
+- Page already has a clip of **the same URL** → the run stops and writes nothing. No duplicate. `clip_status` reports `CLIPPED`.
+- Page has other content but no clip of that URL → the article is **appended**. "Has content" is not the same as "already clipped this URL".
+
+### The URL comes only from the argument
+
+The service never reads the page's `userDefined:URL` property — it does not touch properties at all, by design. If the argument and the property disagree, the argument wins and the property is left untouched. Keeping them in step is the caller's job.
+
 ---
 
 ## 3. Status values
@@ -62,7 +73,9 @@ The **first line** of every response is a stable token. Match on that, not on th
 | `STATUS: FAILED` | Error callout on the page, with a reason. | Relay the reason verbatim |
 | `STATUS: NOT_STARTED` | Page is empty. | Must not report success |
 
-Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive.
+Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive. This is why every failure leads with an unmistakable phrase rather than relying on a flag.
+
+**Results never expire.** Status is read from the page, not from a job store. A `FAILED` result is an error callout sitting on the page and stays there until someone deletes it, so `FAILED` never decays into `NOT_STARTED` — the two stay distinguishable indefinitely.
 
 ---
 
@@ -93,7 +106,11 @@ Never on a first attempt. It deletes the existing clip before rewriting.
 
 **Images** are imported into Notion. A stored image serves from an `amazonaws.com` URL, not the source site's domain — that is how you verify it. An image that can't be imported degrades to an external reference rather than vanishing.
 
-**Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly. The fallback for those is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
+**Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly, before anything is written. The fallback is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
+
+**A newly created Resources page has a blank body, and that is normal.** Every template in that database — the default `(New article to read)` and the named ones like `(Architecture clipping)` — presets *properties* only and seeds no content. Blank is the expected steady state, not a page still loading. **Clip into it; do not wait for content to appear.**
+
+This is worth stating explicitly because an earlier version of the guidance told the caller to wait for template content, and that deadlocked a real session: it followed the instruction correctly, read a blank page, and stopped, waiting for something that was never coming. The instruction was also unfalsifiable — a blank page looks identical whether a template is still landing or has nothing to land.
 
 ---
 
@@ -128,6 +145,10 @@ The `?token=` form is still accepted by the server but **does not work through c
 Rotating the secret means updating **three** places: the Netlify environment variable, a redeploy (env changes don't reach live functions otherwise), and the connector URL.
 
 If tools don't appear after a change, disconnect and re-add the connector rather than editing it — the settings page can show a stale URL.
+
+**Target verification.** The service only writes to pages whose parent is data source `<your-data-source-id>` (WDB | Resources). `RESOURCES_DATA_SOURCE_ID` is unset in Netlify, so the code default applies and matches the live data source. A leaked token therefore cannot append to arbitrary pages in the workspace.
+
+**Checking a clip by hand.** Images genuinely stored in Notion serve from an `amazonaws.com` URL rather than the source site's domain — that is the check that matters most, and the only reliable way to tell a stored image from a hotlinked one. In the Netlify function logs, `image_degraded` and `image_import_failed` mark images that fell back to external references; a cluster of them means something systematic about that site. If a long illustrated article approaches the 15-minute background-function ceiling, `IMAGE_CONCURRENCY` and the image poll intervals are the tunables to reach for.
 
 ---
 
