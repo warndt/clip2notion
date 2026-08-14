@@ -59,6 +59,20 @@ const SKIP_TAGS = new Set([
   "SVG", "CANVAS", "FORM", "INPUT", "BUTTON", "SELECT", "TEXTAREA", "NAV",
 ]);
 
+function isFootnoteMarker(el: Element): boolean {
+  const className = el.getAttribute("class") ?? "";
+  const href = el.getAttribute("href") ?? "";
+  const id = el.getAttribute("id") ?? "";
+  const looksLikeMarker =
+    /footnote[-_]?anchor/i.test(className) ||
+    /footnote[-_]?anchor/i.test(id) ||
+    /^#footnote/i.test(href);
+
+  // Only the bare-number form. A footnote link wrapping real prose is a normal
+  // link and should stay one.
+  return looksLikeMarker && /^\s*\d{1,3}\s*$/.test(el.textContent ?? "");
+}
+
 function annotationsFor(tag: string, inherited: Annotations): Annotations {
   switch (tag) {
     case "STRONG": case "B":
@@ -130,6 +144,16 @@ function collectRichText(
       const src = pickImageUrl(el, ctx.baseUrl);
       const alt = el.getAttribute("alt")?.trim();
       if (src && alt) out.push(makeRichText(alt, inherited, link ?? src));
+      continue;
+    }
+
+    // A footnote marker is an anchor whose entire text is the number. Left
+    // alone it fuses to the preceding word — "of course.1" — and reads as a
+    // typo rather than a reference, especially now that there is a Footnotes
+    // section for it to point at.
+    if (tag === "A" && isFootnoteMarker(el)) {
+      const marker = (el.textContent ?? "").trim();
+      if (marker) out.push(makeRichText(` [${marker}]`, inherited, null));
       continue;
     }
 

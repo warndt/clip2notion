@@ -176,8 +176,9 @@ export async function awaitOwnRun(
   budgetMs: number,
   enteredAt: number = Date.now(),
 ): Promise<ClipStatus | null> {
+  // No parent check here: `clip_article` has already made it, and repeating it
+  // spends a Notion round trip out of a budget measured against a 10s kill.
   const client = new NotionClient(config, clipId);
-  await client.assertPageInDataSource(pageId);
 
   const deadline = deadlineFrom(enteredAt, budgetMs);
   const startDeadline = Math.min(deadline, Date.now() + TUNABLES.runStartWaitMs);
