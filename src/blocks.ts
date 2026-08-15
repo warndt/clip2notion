@@ -281,7 +281,16 @@ const LAZY_SRC_ATTRS = [
   "data-full-src", "data-image-src", "data-echo",
 ];
 
-const TRACKING_PATTERNS = /(^|[/_-])(pixel|spacer|blank|transparent|1x1|beacon)([._-]|$)/i;
+/**
+ * Filenames that are page machinery rather than content.
+ *
+ * `loader` and `spinner` joined the list from a real ArchDaily clip, which
+ * imported `assets.adsttc.com/doodles/flat/loader-white.gif` — the animation
+ * shown while the gallery is still fetching, stored permanently in Notion as
+ * though it were one of the photographs.
+ */
+const TRACKING_PATTERNS =
+  /(^|[/_-])(pixel|spacer|blank|transparent|1x1|beacon|loader|loading|spinner)([._-]|$)/i;
 
 function descriptorWeight(descriptor: string): number {
   const trimmed = descriptor.trim();
@@ -335,6 +344,12 @@ function parseSrcsetCandidates(value: string): Array<{ url: string; weight: numb
   return candidates;
 }
 
+/** A `<source>` keyed to a small viewport — the mobile variant, not the good copy. */
+function isSmallViewportSource(source: Element): boolean {
+  const width = (source.getAttribute("media") ?? "").match(/max-width\s*:\s*(\d+)\s*px/i)?.[1];
+  return width !== undefined && Number(width) < TUNABLES.desktopViewportWidth;
+}
+
 /** Largest candidate from a srcset, by width or density descriptor. */
 function fromSrcset(value: string | null): string | null {
   if (!value) return null;
@@ -355,19 +370,44 @@ function fromSrcset(value: string | null): string | null {
 export function pickImageUrl(el: Element, baseUrl: string): string | null {
   const candidates: (string | null)[] = [];
 
+  /**
+   * Phone-sized alternatives, tried only when nothing better resolves.
+   *
+   * `<source media="(max-width: 767px)">` is the small copy, and preferring it
+   * over the `<img>` imports a thumbnail while leaving the real photograph on
+   * the source site — ArchDaily's gallery is a thumb_jpg source wrapped around
+   * a medium_jpg img, so every gallery image arrived as a thumbnail.
+   *
+   * Demoted rather than dropped, which is the correction to my first attempt at
+   * this: on a lazy-loaded image the mobile `<source>` is sometimes the only
+   * real URL in the markup, and skipping it deleted the image outright. A small
+   * copy beats no copy.
+   */
+  const smallScreen: (string | null)[] = [];
+
   // <picture> wraps <source srcset> alternatives around a fallback <img>.
-  const picture = el.tagName.toUpperCase() === "PICTURE" ? el : el.parentElement;
+  const isPicture = el.tagName.toUpperCase() === "PICTURE";
+  const picture = isPicture ? el : el.parentElement;
+
+  // The attribute-bearing element is always the <img>. Called with the
+  // <picture> — which is what the figure and gallery paths hand over — its own
+  // attributes are empty, and reading them instead of the inner img's found
+  // nothing at all when the picture carried no <source>.
+  const img = (isPicture ? el.querySelector("img") : el) ?? el;
+
   if (picture && picture.tagName.toUpperCase() === "PICTURE") {
     for (const source of Array.from(picture.querySelectorAll("source"))) {
-      candidates.push(fromSrcset(source.getAttribute("srcset")));
-      candidates.push(fromSrcset(source.getAttribute("data-srcset")));
+      const into = isSmallViewportSource(source) ? smallScreen : candidates;
+      into.push(fromSrcset(source.getAttribute("srcset")));
+      into.push(fromSrcset(source.getAttribute("data-srcset")));
     }
   }
 
-  candidates.push(fromSrcset(el.getAttribute("data-srcset")));
-  candidates.push(fromSrcset(el.getAttribute("srcset")));
-  for (const attr of LAZY_SRC_ATTRS) candidates.push(el.getAttribute(attr));
-  candidates.push(el.getAttribute("src"));
+  candidates.push(fromSrcset(img.getAttribute("data-srcset")));
+  candidates.push(fromSrcset(img.getAttribute("srcset")));
+  for (const attr of LAZY_SRC_ATTRS) candidates.push(img.getAttribute(attr));
+  candidates.push(img.getAttribute("src"));
+  candidates.push(...smallScreen);
 
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -402,6 +442,38 @@ export function imageBlock(url: string, caption: RichText[] = []): Block {
     type: "image",
     image: { type: "external", external: { url }, caption: splitRichText(caption).slice(0, 100) },
   };
+}
+
+/**
+ * An inline element whose only content is an image — `<a href="full.jpg"><img></a>`.
+ *
+ * This is how a very large class of sites publishes photography: every image is
+ * a link to its full-size version, or to a lightbox page. `<a>` is an inline
+ * tag, so without this the image lands in a run of text and `collectRichText`
+ * degrades it to a link carrying its alt text — the image itself is gone, and
+ * the page reads as though the article simply had fewer pictures.
+ *
+ * Measured on two real articles: ArchDaily lost 18 of 21 images this way and
+ * Divisare lost all 33. Both looked like successful clips.
+ *
+ * The no-text condition is what keeps a genuinely inline image — an icon inside
+ * a sentence — behaving as it does today.
+ */
+function isImageWrapper(el: Element): boolean {
+  const tag = el.tagName.toUpperCase();
+  if (tag !== "A" && tag !== "SPAN") return false;
+  if ((el.textContent ?? "").trim().length > 0) return false;
+  return el.querySelector("img, picture") !== null;
+}
+
+/** Inline by tag, but block by content: an image wrapper is emitted as a block. */
+function isBlockLike(el: Element): boolean {
+  return !INLINE_TAGS.has(el.tagName.toUpperCase()) || isImageWrapper(el);
+}
+
+/** Does this element carry text of its own, or is it just a container for images? */
+function holdsOnlyImages(el: Element): boolean {
+  return (el.textContent ?? "").trim().length === 0 && el.querySelector("img, picture") !== null;
 }
 
 function convertImage(el: Element, ctx: Ctx, caption: RichText[] = []): Block[] {
@@ -559,6 +631,10 @@ function convertElement(el: Element, ctx: Ctx): Block[] {
 
   switch (tag) {
     case "P":
+      // A paragraph with no words of its own but an image inside it is a figure
+      // in all but name — which is how Divisare publishes every photograph.
+      // Walking it emits image blocks; the rich-text path would flatten them.
+      if (holdsOnlyImages(el)) return walkChildren(el, ctx);
       return blocksFromRichText("paragraph", richTextFrom(el, ctx.baseUrl));
 
     case "UL":
@@ -615,7 +691,7 @@ function convertQuote(el: Element, ctx: Ctx): Block[] {
   const blocks: Block[] = [];
 
   for (const child of Array.from(el.childNodes)) {
-    if (child.nodeType === 1 && !INLINE_TAGS.has((child as Element).tagName.toUpperCase())) {
+    if (child.nodeType === 1 && isBlockLike(child as Element)) {
       blocks.push(...convertElement(child as Element, { ...ctx, depth: ctx.depth + 1 }));
     } else {
       inline.push(child);
@@ -690,11 +766,19 @@ function convertList(el: Element, ctx: Ctx, ordered: boolean): Block[] {
   for (const li of Array.from(el.children)) {
     if (li.tagName.toUpperCase() !== "LI") continue;
 
+    // A list item holding nothing but an image is a gallery entry, not a bullet.
+    // ArchDaily's photo strip is `ul > li > a > picture > img`, eleven of them;
+    // as bullets they would read as a list of nothing.
+    if (holdsOnlyImages(li)) {
+      blocks.push(...walkChildren(li, ctx));
+      continue;
+    }
+
     const inline: Node[] = [];
     const childBlocks: Block[] = [];
 
     for (const child of Array.from(li.childNodes)) {
-      if (child.nodeType === 1 && !INLINE_TAGS.has((child as Element).tagName.toUpperCase())) {
+      if (child.nodeType === 1 && isBlockLike(child as Element)) {
         childBlocks.push(...convertElement(child as Element, { ...ctx, depth: ctx.depth + 1 }));
       } else {
         inline.push(child);
@@ -764,13 +848,12 @@ function walkChildren(el: Element, ctx: Ctx): Block[] {
     if (child.nodeType !== 1) continue;
 
     const childEl = child as Element;
-    const tag = childEl.tagName.toUpperCase();
 
-    if (INLINE_TAGS.has(tag)) {
-      inlineRun.push(child);
-    } else {
+    if (isBlockLike(childEl)) {
       flush();
       blocks.push(...convertElement(childEl, ctx));
+    } else {
+      inlineRun.push(child);
     }
   }
 
