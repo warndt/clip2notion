@@ -20,7 +20,11 @@ Everything else is negotiable. These five fail *invisibly* — the page looks fi
 
 ---
 
-> **State as of 2026-08-14:** the service works end to end. An article is clipped from a claude.ai chat session via the MCP connector, images stored in Notion, structure intact, exactly one copy after a forced re-clip. Everything below is either history, or optional work that real usage will prioritise better than planning would.
+> **State as of 2026-08-15:** the service works end to end and is in ordinary use. An article is clipped from a claude.ai chat session via the MCP connector, images stored in Notion, structure intact, exactly one copy after a forced re-clip.
+>
+> Since the 14th, on the back of real clips rather than planning: the **lead image** above the article body is captured (M4); `clip_status` reports **when** a clip was written and `/health` reports what is deployed, so "did it actually run?" and "is the fix live?" are both answerable (M5); and **images wrapped in links** — a whole class that was being silently discarded — are converted properly (M6). Deployed at `55f4b0e`.
+>
+> Everything below is either history, or optional work that real usage will prioritise better than planning would.
 
 ## M1 — MVP 🟡
 
@@ -265,7 +269,7 @@ Measured before and after, on the reported articles and on four already-verified
 
 Seven tests, including the two that keep the fix honest: an icon inside a sentence must not split the paragraph, and a photograph named `loaders-at-work.jpg` must survive the loader filter.
 
-**Done when:** Wil re-clips both reported articles with `force: true` and sees the full set.
+**Done when:** Wil re-clips both reported articles with `force: true` and sees the full set. **Met 2026-08-15** — ArchDaily 15 images with all 15 stored in Notion and none degraded; Divisare 33 images with 29 stored. Confirmed against the function logs and reviewed on the pages: images render correctly.
 
 ---
 
@@ -358,6 +362,8 @@ One consequence worth knowing meanwhile: because the hero on that post is one of
 The Divisare re-clip stored 29 of 33 images and degraded 4. All four are the project's **architectural drawings**, which Divisare publishes inside `<img>` tags pointing at `.pdf` URLs; the CDN serves `application/pdf` regardless of the `Accept` header, and asking for the same asset as `.jpg` 404s. So the degradation is correct — Notion's importer cannot take a PDF as an image — but those four drawings are now hotlinks to Divisare, which is exactly the impermanence this service exists to remove. They may also render as broken images on the page.
 
 The fix would be to import a non-image attachment as a Notion **file block** rather than an image block: `POST /v1/file_uploads` accepts PDFs, so the drawing would be stored and openable. That is a new block type in the converter and worth doing only if this recurs — though on architecture sites it very likely will, since plans and sections are usually PDFs.
+
+**Reviewed 2026-08-15 and deliberately not built.** The page reads fine as it stands, so the cost is four drawings that live on Divisare's servers rather than in Notion — a permanence gap, not a visible defect. Revisit when a clip actually suffers for it.
 
 **Left alone in the M6 image work, deliberately:**
 
