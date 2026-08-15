@@ -386,3 +386,40 @@ test("the clip header links to the source URL so a retry can find it", () => {
   assert.match(text, /Example Magazine/);
   assert.match(text, /A\. Writer/);
 });
+
+// --- Label-and-value spacing -----------------------------------------------
+
+/** The plain text of the first block, as a reader would see it. */
+function textOf(html: string): string {
+  const { blocks } = htmlToBlocks(html, "https://example.com/a");
+  return richTextOf(blocks[0]!).map((item) => item.text.content).join("");
+}
+
+test("a credit line does not run into the name it credits", () => {
+  // Real TechCrunch markup: there is no whitespace anywhere in the source. The
+  // gap on the site comes from rendering the bold run, and none of that
+  // survives into plain text — Notion showed "Image Credits:Getty Images" on
+  // every clipped image.
+  assert.equal(textOf("<p><strong>Image Credits:</strong>Getty Images</p>"), "Image Credits: Getty Images");
+  assert.equal(
+    textOf("<p><em><strong>Image Credits:</strong>Bill Swearingen</em></p>"),
+    "Image Credits: Bill Swearingen",
+  );
+});
+
+test("a site that already spaces its labels does not get a double space", () => {
+  assert.equal(textOf("<p><strong>Image Credits: </strong>Getty Images</p>"), "Image Credits: Getty Images");
+  assert.equal(textOf("<p><strong>Image Credits:</strong> Getty Images</p>"), "Image Credits: Getty Images");
+});
+
+test("a word split by formatting is left alone", () => {
+  // The general rule — space at every formatting boundary — is wrong, which is
+  // why this one is scoped to a colon.
+  assert.equal(textOf("<p><b>un</b>likely</p>"), "unlikely");
+  assert.equal(textOf("<p><b>Micro</b>soft</p>"), "Microsoft");
+});
+
+test("text the author wrote without a space keeps it that way", () => {
+  // One text node, no formatting boundary: not ours to edit.
+  assert.equal(textOf("<p>Note:Value</p>"), "Note:Value");
+});

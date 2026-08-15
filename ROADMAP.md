@@ -196,7 +196,12 @@ Four furniture images rejected, zero real heroes rejected, zero wrong candidates
 
 - 🟡 **Flipped to `insert`** (2026-08-15), by changing the default in `config.ts` rather than setting a Netlify env var — an env change needs a redeploy anyway, and a default in code is one fewer thing to forget. `LEAD_IMAGE_MODE=detect` or `off` in the Netlify UI is the rollback.
 
-**Done when:** a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. Then, and not before, `TOOL-BRIEF.md` §5 gains a line saying a lead image above the article body is captured — and the Notion mirror is re-synced.
+**Done when:** a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. **Met 2026-08-15**, confirmed by the calling session:
+
+- Repro article re-clipped with `force: true` → three images, hero directly below the `Source:` line with its credit, Yaris photo exactly once, all three serving from `prod-files-secure.s3...` rather than hotlinked.
+- A fresh TechCrunch clip took its Getty hero and rejected four candidates that a looser rule would have taken: two site logos, an event promo, and **the author headshot** — a real JPEG close to the article, marked as furniture only by its 150px width and its filename. The caller expected that one to slip through.
+- Nothing spurious on either page: no logo, no avatar, no ad, no duplicated body image.
+- `TOOL-BRIEF.md` §5 now says lead images are captured. ⚠️ **The Notion mirror and the caller's system prompt need re-syncing.**
 
 ---
 
@@ -208,6 +213,18 @@ Raised by the calling session after three forced re-clips it could not verify, a
 - 🟡 **`clip_status` now reports when the clip was written**, absolutely and relatively. Read from the header block's Notion `created_time`, so nothing new is written to the page, the tool contract is unchanged, and the idempotency key is untouched. A forced re-clip deletes the old header and writes a new one, so the time moves when a run really happened.
 - 🟡 `IN_PROGRESS` reports when the run started, which also makes a dead run visible as an old marker.
 - 🟡 Known limit, deliberately accepted: Notion records block creation to the minute, so two runs inside the same minute are indistinguishable. This is a *report*, never a decision input — nothing branches on it.
+
+### The timestamp did its job on the first run that used it
+
+Verified 2026-08-15, and worth recording because the sequence is not the obvious one. A forced re-clip produced, in order:
+
+1. `CLIPPED` — `Clip written: 2026-08-14 20:59 UTC (4 hours ago)` ← **the previous clip**
+2. `IN_PROGRESS` — `Run started: 2026-08-15 00:31 UTC (1 minute ago)`
+3. `CLIPPED` — `Clip written: 2026-08-15 00:32 UTC (moments ago)`
+
+**A stale `CLIPPED` arrives *before* `IN_PROGRESS`**, because the run had been dispatched but had not yet planted its marker, so the tool read the page and truthfully found the old clip. Before the timestamp, that first response was indistinguishable from success — which is exactly how three earlier re-clips ended up unverifiable.
+
+**Asked for, and deliberately not built: `clip_status` returning `IN_PROGRESS` instead of a stale `CLIPPED`.** It cannot. `clip_status` reads the page and nothing else — there is no job store, so a dispatch that has not touched the page yet is invisible to it, and a page clipped last week is legitimately `CLIPPED`. Any rule of the form "an old timestamp means something is coming" would misreport every ordinary status check. The timestamp *is* the substitute for the knowledge the tool cannot have, and the tool text now tells the caller to read it on a re-clip.
 
 ### ⚠️ Netlify function logs drop entries — established 2026-08-15
 

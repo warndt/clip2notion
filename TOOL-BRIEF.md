@@ -156,6 +156,10 @@ Never on a first attempt. It deletes the existing clip before rewriting.
 
 **Images** are imported into Notion. A stored image serves from an `amazonaws.com` URL, not the source site's domain — that is how you verify it. An image that can't be imported degrades to an external reference rather than vanishing.
 
+**The lead image is captured**, meaning the hero that sits *above* the article body — where most news sites and WordPress themes put it, alongside its credit line. It lands directly below the `Source:` line, above the first heading, with its caption. Before 2026-08-15 it was lost silently: the article extracted fine and nothing reported a problem, so the only sign was an image you remembered seeing on the site.
+
+Selection is deliberately strict — a missing hero is a minor loss, while a site logo at the top of every clip would be a visible defect on every page. Site logos, author headshots, event promos and tracking pixels are rejected, and a hero that is already in the article body is skipped rather than inserted twice.
+
 **Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly, before anything is written. The fallback is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
 
 **A newly created Resources page already has content, and that is normal.** The templates — `[New resource] <v1.0>` and its siblings — seed a version toggle and a divider along with preset properties. Verified 2026-08-14. **Clip into the page regardless; never wait for it to look a particular way before starting.**
