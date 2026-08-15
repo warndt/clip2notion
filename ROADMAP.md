@@ -236,6 +236,39 @@ So the logs are usable as positive evidence (a line that is there happened) and 
 
 ---
 
+## M6 — Images that never became images 🟡
+
+Reported from real use: an ArchDaily project page clipped 2 images out of a 21-image article, and a Divisare project clipped **none at all**. Both reported success. Diagnosed by counting images at each stage rather than by reading the sites: Readability's output held 21 and 33 images respectively, so nothing was lost upstream — the converter was throwing them away.
+
+**Root cause: an `<img>` wrapped in an `<a>` was flattened into link text.** `<a>` is an inline tag, so a linked image landed in a run of prose and `collectRichText` degraded it to a link carrying its alt text. The image itself was gone. This is how a very large class of sites publishes photography — every photo links to its full-size version or a lightbox — so it was never one awkward site. ArchDaily lost 18 of 21 images this way; Divisare lost all 33.
+
+- 🟡 An inline wrapper holding an image and no text is now treated as a block, in all three places that split inline from block content. A genuinely inline image — an icon inside a sentence — is unchanged, which is what the no-text condition protects.
+- 🟡 A paragraph with no words of its own but an image inside it converts as a figure. That is how Divisare publishes every photograph.
+- 🟡 A list item holding only an image emits the image rather than a bullet. ArchDaily's gallery strip is `ul > li > a > picture > img`, eleven of them; as bullets they would read as a list of nothing.
+
+**Two more defects surfaced while fixing it, both older than this change:**
+
+- 🟡 **`pickImageUrl` never looked at the inner `<img>` when handed a `<picture>`.** The figure and gallery paths hand over the `<picture>`, whose own attributes are empty — so any `<picture>` without a `<source>` yielded no URL at all, and one with only a phone-sized source yielded the thumbnail. Caught by a test written for something else.
+- 🟡 **The phone-sized `<source>` outranked the full image.** `<source media="(max-width: 767px)">` is the small copy; preferring it archived a 6KB thumbnail while leaving the 98KB photograph on the source site. Now demoted rather than skipped — a first attempt that skipped them deleted images outright, because on a lazy-loaded image the mobile source is sometimes the only real URL in the markup. A small copy beats no copy.
+- 🟡 Loading animations no longer count as photographs. A real clip stored `assets.adsttc.com/doodles/flat/loader-white.gif` in Notion, permanently.
+
+Measured before and after, on the reported articles and on four already-verified ones:
+
+| Article | Before | After |
+|---|---|---|
+| Divisare project | **0** | 33 |
+| ArchDaily project | 2 | 15, of which 12 at `medium_jpg` rather than thumbnails |
+| Ars Technica review | 9 | 12 |
+| Noahpinion (Substack) | 2 | 3 |
+| TechCrunch repro | 3 | 3 — unchanged, as intended |
+| MDN, Astral Codex Ten | 0 | 0 — neither has body images |
+
+Seven tests, including the two that keep the fix honest: an icon inside a sentence must not split the paragraph, and a photograph named `loaders-at-work.jpg` must survive the loader filter.
+
+**Done when:** Wil re-clips both reported articles with `force: true` and sees the full set.
+
+---
+
 ## Backlog
 
 Discovered work goes here rather than getting fixed in place.
@@ -319,6 +352,12 @@ Not the lead image, and not fixed here. On a real Noahpinion post, four content 
 This is silent content loss on a site that is already a known-awkward source (it also ate the headings and the footnotes). Same shape as those: the clip reports success and the page looks fine. Worth fixing by the same technique — rebuild or rescue the figures before Readability scores them — but it is a separate change from the hero, and it needs its own evidence about how many sites are affected.
 
 One consequence worth knowing meanwhile: because the hero on that post is one of the dropped images, the lead-image step inserts it rather than deduping it. Correct today, and self-correcting if this is ever fixed — the dedupe will simply start catching it.
+
+**Left alone in the M6 image work, deliberately:**
+
+- **An author bio photo can still reach the page.** ArchDaily's "about the author" headshot converts like any body image. The lead-image selector rejects headshots by filename, but applying that filter to body images would risk dropping a real photograph whose filename happens to say `icon` — a worse trade for one stray avatar at the end of an article.
+- **A gallery repeats photos the body already showed.** ArchDaily's strip includes every photo, so the two in the article body appear twice. That is what the page itself shows; deduping body images against each other is a bigger decision than it looks, because an article may repeat an image on purpose.
+- **The largest variant is not always reachable.** ArchDaily's full-size images sit behind one HTML page per photo. Following those links would be a new capability — a fetch per image — and `medium_jpg` at 98KB turned out to be enough to make the whole set usable, so it stays unbuilt until something needs it.
 
 **Ideas, unprioritised:**
 

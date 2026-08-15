@@ -423,3 +423,94 @@ test("text the author wrote without a space keeps it that way", () => {
   // One text node, no formatting boundary: not ours to edit.
   assert.equal(textOf("<p>Note:Value</p>"), "Note:Value");
 });
+
+// --- Images wrapped in links -----------------------------------------------
+
+function imageUrls(html: string): string[] {
+  const { blocks } = htmlToBlocks(html, "https://example.com/article/");
+  return collectImageBlocks(blocks).map(
+    (block) => (block["image"] as { external: { url: string } }).external.url,
+  );
+}
+
+test("an image wrapped in a link is an image, not a link to one", () => {
+  // How a large class of sites publishes photography: every photo links to its
+  // full-size version. `<a>` is inline, so without special handling the image
+  // is flattened into a run of text and only its alt survives. Measured on real
+  // articles: ArchDaily lost 18 of 21 images this way, Divisare all 33.
+  assert.deepEqual(
+    imageUrls(`<p><a href="/full.jpg"><img src="/photo.jpg" alt="A house"></a></p>`),
+    ["https://example.com/photo.jpg"],
+  );
+});
+
+test("a gallery of linked thumbnails becomes images, not bullets", () => {
+  // ArchDaily's photo strip: ul > li > a > picture > img, eleven of them.
+  const gallery = `<ul>${Array.from(
+    { length: 3 },
+    (_, i) => `<li><a href="/photo-${i}"><picture><img src="/g${i}.jpg" alt="Image ${i}"></picture></a></li>`,
+  ).join("")}</ul>`;
+
+  const { blocks } = htmlToBlocks(gallery, "https://example.com/article/");
+
+  assert.deepEqual(blocks.map((block) => block.type), ["image", "image", "image"]);
+});
+
+test("an image inside a sentence still reads as a sentence", () => {
+  // The other half of the rule: a genuinely inline image — an icon mid-prose —
+  // must not split the paragraph. The wrapper only counts when it holds no text.
+  const { blocks } = htmlToBlocks(
+    `<p>Rated <a href="/x"><img src="/star.png" alt="four stars"></a> by critics.</p>`,
+    "https://example.com/article/",
+  );
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0]!.type, "paragraph");
+});
+
+test("a caption beside a linked image stays with the text", () => {
+  const { blocks } = htmlToBlocks(
+    `<p><a href="/full.jpg"><img src="/photo.jpg"></a></p><p>The kitchen, looking north.</p>`,
+    "https://example.com/article/",
+  );
+
+  assert.deepEqual(blocks.map((block) => block.type), ["image", "paragraph"]);
+});
+
+// --- Picking the right size ------------------------------------------------
+
+test("the phone-sized <source> does not win over the full image", () => {
+  // ArchDaily wraps a thumb_jpg source around a medium_jpg img: 6KB versus
+  // 98KB of the same photograph. Preferring the source archived the thumbnail.
+  assert.deepEqual(
+    imageUrls(
+      `<picture><source media="(max-width: 767px)" srcset="/thumb.jpg">` +
+        `<img src="/medium.jpg" alt="A house"></picture>`,
+    ),
+    ["https://example.com/medium.jpg"],
+  );
+});
+
+test("a phone-sized <source> is still used when it is the only real URL", () => {
+  // The correction to a first attempt that skipped these outright: on a lazy
+  // image the mobile source is sometimes all the markup has, and skipping it
+  // deleted the image. A small copy beats no copy.
+  assert.deepEqual(
+    imageUrls(
+      `<picture><source media="(max-width: 767px)" srcset="/thumb.jpg">` +
+        `<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="A house"></picture>`,
+    ),
+    ["https://example.com/thumb.jpg"],
+  );
+});
+
+test("loading animations are not archived as photographs", () => {
+  // A real ArchDaily clip stored assets.adsttc.com/doodles/flat/loader-white.gif
+  // in Notion, permanently, as though it were one of the pictures.
+  assert.deepEqual(imageUrls(`<p><img src="/doodles/flat/loader-white.gif"></p>`), []);
+  assert.deepEqual(imageUrls(`<p><img src="/img/spinner.gif"></p>`), []);
+  // A photograph whose name merely contains the letters must survive.
+  assert.deepEqual(imageUrls(`<p><img src="/img/loaders-at-work.jpg"></p>`), [
+    "https://example.com/img/loaders-at-work.jpg",
+  ]);
+});

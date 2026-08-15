@@ -78,6 +78,13 @@ export const TUNABLES = {
   minImageDimension: num("MIN_IMAGE_DIMENSION", 33),
 
   /**
+   * Below this, a `<picture><source media="(max-width: …)">` is the phone
+   * variant and its image is the small copy. We always want the desktop one:
+   * the point of the service is a permanent archive, not a fast page load.
+   */
+  desktopViewportWidth: num("DESKTOP_VIEWPORT_WIDTH", 1000),
+
+  /**
    * Lead image — the hero that sits outside the readable body.
    *
    * `off` skips selection entirely. `detect` runs it and logs what it *would*
