@@ -45,7 +45,11 @@ A forced re-clip deletes everything from the `Source:` line to the end of the pa
 
 ### When something is properly broken
 
-Netlify → the clip2notion site → **Function logs**. Every run is tagged with a `clip_id`. `image_degraded` and `image_import_failed` mark images that fell back to hotlinks — a cluster of those means something systematic about that site rather than a one-off.
+First, **check what is running**: [<your-site>.netlify.app/.netlify/functions/health](https://<your-site>.netlify.app/.netlify/functions/health) answers with the deployed commit, whether each required secret is present, and the current settings. It never echoes a secret's value. A `503` there means the service is misconfigured and no clip will work until it is fixed.
+
+Then Netlify → the clip2notion site → **Function logs**. Every run is tagged with a `clip_id`. `image_degraded` and `image_import_failed` mark images that fell back to hotlinks — a cluster of those means something systematic about that site rather than a one-off.
+
+⚠️ **The logs drop entries.** A request that provably ran and returned has been observed missing from them entirely. Treat a missing log line as "no information", never as proof that something didn't happen.
 
 ---
 
@@ -110,6 +114,10 @@ The **first line** of every response is a stable token. Match on that, not on th
 | `STATUS: REJECTED` | The request was refused before anything was written — bad page id, bad URL, page outside Resources, or Notion unreachable. | Relay the reason. Nothing reached the page, so there is no error callout to read. |
 
 Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive. This is why every failure leads with an unmistakable phrase rather than relying on a flag.
+
+**`CLIPPED` and `IN_PROGRESS` carry a time.** `Clip written:` on a `CLIPPED` result is when that clip's header was created; `Run started:` on `IN_PROGRESS` is when the running clip planted its marker. Both read absolutely and relatively — `2026-08-15 00:31 UTC (2 minutes ago)`.
+
+This matters in exactly one situation, and it is the situation that has caused the most confusion: **on a re-clip, `CLIPPED` alone proves nothing.** The token says the same thing whether the re-run finished or the previous clip is sitting untouched. Check the written time before reporting a re-clip as done — a stale timestamp means the re-run has not landed and the article on the page is the old one. Notion records that time to the minute, so two runs inside one minute cannot be told apart this way.
 
 **Results never expire.** Status is read from the page, not from a job store. A `FAILED` result is an error callout sitting on the page and stays there until someone deletes it, so `FAILED` never decays into `NOT_STARTED` — the two stay distinguishable indefinitely.
 

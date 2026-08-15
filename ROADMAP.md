@@ -194,7 +194,28 @@ Deployed at `64061f1`. Every outcome was correct, and **nothing would have been 
 
 Four furniture images rejected, zero real heroes rejected, zero wrong candidates, dedupe firing correctly on two different CDNs. The one evidence type still missing is a live `lead_image_found` — the flag should not flip until an article with a hero *above* the body has been clipped in detect mode. The original repro article is the guaranteed case.
 
-**Done when:** the flag is flipped to `insert` and a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. Then, and not before, `TOOL-BRIEF.md` §5 gains a line saying a lead image above the article body is captured — and the Notion mirror is re-synced.
+- 🟡 **Flipped to `insert`** (2026-08-15), by changing the default in `config.ts` rather than setting a Netlify env var — an env change needs a redeploy anyway, and a default in code is one fewer thing to forget. `LEAD_IMAGE_MODE=detect` or `off` in the Netlify UI is the rollback.
+
+**Done when:** a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. Then, and not before, `TOOL-BRIEF.md` §5 gains a line saying a lead image above the article body is captured — and the Notion mirror is re-synced.
+
+---
+
+## M5 — Make "did it actually run?" answerable 🟡
+
+Raised by the calling session after three forced re-clips it could not verify, and worth more than it looks: every hour lost tonight went on that question rather than on the clip itself.
+
+- 🟡 **`netlify/functions/health.ts`** — reports the deployed commit SHA, presence (never value) of each required secret, and the live settings. `200` configured, `503` misconfigured. **CLAUDE.md documented this endpoint as the post-deploy check and it did not exist** — hitting it returned the 404 page, so that check had never once worked.
+- 🟡 **`clip_status` now reports when the clip was written**, absolutely and relatively. Read from the header block's Notion `created_time`, so nothing new is written to the page, the tool contract is unchanged, and the idempotency key is untouched. A forced re-clip deletes the old header and writes a new one, so the time moves when a run really happened.
+- 🟡 `IN_PROGRESS` reports when the run started, which also makes a dead run visible as an old marker.
+- 🟡 Known limit, deliberately accepted: Notion records block creation to the minute, so two runs inside the same minute are indistinguishable. This is a *report*, never a decision input — nothing branches on it.
+
+### ⚠️ Netlify function logs drop entries — established 2026-08-15
+
+I told Wil the caller's three `force` attempts "never arrived at the function", on the evidence that the page id appeared nowhere in three hours of logs. **That inference was wrong, and the reasoning behind it is unsafe.**
+
+A `clip_status` call I made myself, which returned a correct page-specific answer and therefore certainly executed, **never appeared in the logs at all** — not immediately, and not in a poll five minutes later. Entries also arrive minutes late and out of order relative to each other.
+
+So the logs are usable as positive evidence (a line that is there happened) and **worthless as negative evidence** (a line that is missing proves nothing). Every diagnosis that turns on "there is no log entry for X" has to be re-checked against something else. This is precisely why the health endpoint and the clip timestamp are worth their deploy: both answer questions the logs cannot be trusted to.
 
 ---
 

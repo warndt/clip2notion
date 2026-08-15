@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { deriveClipStatus, selectBlocksToDelete } from "../src/pipeline";
+import { describeClipTime } from "../src/status";
 import { clipHeader, errorCallout, statusCallout, type Block } from "../src/blocks";
 import type { NotionBlockRecord } from "../src/notion";
 
@@ -211,4 +212,47 @@ test("the header must carry a link, not just the prefix text", () => {
   // The prefix alone must not count as a header — a clip header always carries
   // the source link, which is what makes it the idempotency key.
   assert.notEqual(deriveClipStatus([linkless]).state, "clipped");
+});
+
+// --- When the clip was written ---------------------------------------------
+
+test("clipped reports when the header was created, so a re-clip is verifiable", () => {
+  // `CLIPPED` says the same thing whether a re-run just finished or the previous
+  // clip is sitting untouched. Three forced re-clips were unverifiable from the
+  // caller's side for exactly this reason.
+  const stamped = { ...header, created_time: "2026-08-15T00:31:00.000Z" } as NotionBlockRecord;
+  const status = deriveClipStatus([stamped, paragraph]);
+
+  assert.equal(status.state, "clipped");
+  assert.equal(status.markerCreatedAt, "2026-08-15T00:31:00.000Z");
+});
+
+test("in_progress reports when the run started", () => {
+  const stamped = { ...progress, created_time: "2026-08-15T00:31:00.000Z" } as NotionBlockRecord;
+  const status = deriveClipStatus([stamped]);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerCreatedAt, "2026-08-15T00:31:00.000Z");
+});
+
+test("a missing or malformed timestamp is simply not reported", () => {
+  // Never a decision input, so an absent value degrades to silence rather than
+  // to a wrong claim about when something happened.
+  assert.equal(deriveClipStatus([header, paragraph]).markerCreatedAt, undefined);
+  assert.equal(
+    deriveClipStatus([{ ...header, created_time: 12345 } as unknown as NotionBlockRecord]).markerCreatedAt,
+    undefined,
+  );
+  assert.equal(describeClipTime(undefined), null);
+  assert.equal(describeClipTime("not a date"), null);
+});
+
+test("the written time reads absolutely and relatively", () => {
+  const now = Date.parse("2026-08-15T01:00:00.000Z");
+
+  assert.equal(describeClipTime("2026-08-15T00:59:40.000Z", now), "2026-08-15 00:59 UTC (moments ago)");
+  assert.equal(describeClipTime("2026-08-15T00:59:00.000Z", now), "2026-08-15 00:59 UTC (1 minute ago)");
+  assert.equal(describeClipTime("2026-08-15T00:30:00.000Z", now), "2026-08-15 00:30 UTC (30 minutes ago)");
+  assert.equal(describeClipTime("2026-08-14T22:00:00.000Z", now), "2026-08-14 22:00 UTC (3 hours ago)");
+  assert.equal(describeClipTime("2026-08-11T01:00:00.000Z", now), "2026-08-11 01:00 UTC (4 days ago)");
 });

@@ -83,17 +83,19 @@ export const TUNABLES = {
    * `off` skips selection entirely. `detect` runs it and logs what it *would*
    * insert without touching the page. `insert` places it below the header.
    *
-   * Defaults to `detect` so the first deploy produces log evidence over a
-   * spread of real sites before anything reaches a page: the risk being
-   * managed is a site logo appearing at the top of every clip, which is a
-   * visible defect on every page rather than a missing bonus on one.
+   * Shipped as `detect` on 2026-08-14 and flipped to `insert` the same day,
+   * on evidence rather than on schedule: five live clips plus four local runs
+   * rejected four furniture images, rejected no real hero, chose no wrong
+   * candidate, and deduped correctly on three different CDNs. Detect mode
+   * earned its keep first — it caught an exclusion that rejected every
+   * Substack hero, before that ever reached a page.
    *
    * An unrecognised value behaves as `detect`, which is the safe direction for
-   * a typo to fail in.
+   * a typo to fail in. To roll back, set this to `detect` or `off` in Netlify.
    *
    * ⚠️ A Netlify env change does not reach live functions without a redeploy.
    */
-  leadImageMode: (process.env.LEAD_IMAGE_MODE || "detect").toLowerCase(),
+  leadImageMode: (process.env.LEAD_IMAGE_MODE || "insert").toLowerCase(),
 
   /**
    * A lead candidate below this on either axis is furniture, not a hero.
