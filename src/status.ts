@@ -22,6 +22,53 @@ export interface ClipStatus {
   state: ClipState;
   detail?: string;
   sourceUrl?: string;
+  /**
+   * When the block that decided this state was created — the clip header for
+   * `clipped`, the progress callout for `in_progress`.
+   *
+   * `CLIPPED` alone is unfalsifiable on a page that already held a clip: it
+   * cannot tell a completed re-run from stale content sitting untouched, which
+   * is exactly what left three forced re-clips unverifiable from the caller's
+   * side. A forced re-clip deletes the old header and writes a new one, so this
+   * moves when a run really happened and doesn't when it didn't.
+   *
+   * Notion reports block creation to the minute, so two runs inside the same
+   * minute are indistinguishable here. Nothing else in the system is affected —
+   * this is a report, never a decision input.
+   */
+  markerCreatedAt?: string;
+}
+
+/** Notion stamps `created_time` on every block; absent or odd values just don't report. */
+function createdTime(block: NotionBlockRecord): string | undefined {
+  const raw = block["created_time"];
+  return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
+/**
+ * "2026-08-15 00:31 UTC (2 minutes ago)" — absolute so it can be checked
+ * against a Notion page, relative because the question being asked is almost
+ * always "did that just happen, or is this yesterday's clip?"
+ */
+export function describeClipTime(iso: string | undefined, now: number = Date.now()): string | null {
+  if (!iso) return null;
+
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+
+  const stamp = `${at.toISOString().slice(0, 10)} ${at.toISOString().slice(11, 16)} UTC`;
+  const seconds = Math.round((now - at.getTime()) / 1000);
+
+  // A clock skew of a few seconds is normal; don't render "in 3 seconds".
+  if (seconds < 45) return `${stamp} (moments ago)`;
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${stamp} (${minutes} minute${minutes === 1 ? "" : "s"} ago)`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${stamp} (${hours} hour${hours === 1 ? "" : "s"} ago)`;
+
+  return `${stamp} (${Math.round(hours / 24)} days ago)`;
 }
 
 /**
@@ -48,7 +95,11 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
     (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
   );
   if (running) {
-    return { state: "in_progress", detail: blockPlainText(running) };
+    return {
+      state: "in_progress",
+      detail: blockPlainText(running),
+      markerCreatedAt: createdTime(running),
+    };
   }
 
   const header = children.find(
@@ -62,6 +113,7 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
       state: "clipped",
       detail: blockPlainText(header),
       sourceUrl: blockFirstLink(header) ?? undefined,
+      markerCreatedAt: createdTime(header),
     };
   }
 

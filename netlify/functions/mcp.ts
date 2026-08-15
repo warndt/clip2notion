@@ -37,7 +37,7 @@ import { loadConfig, TUNABLES, type Config } from "../../src/config";
 import { ClipError } from "../../src/errors";
 import { log, newClipId } from "../../src/log";
 import { normalizePageId, secretMatches } from "../../src/request";
-import { awaitClipSettled, awaitOwnRun, type ClipStatus } from "../../src/status";
+import { awaitClipSettled, awaitOwnRun, describeClipTime, type ClipStatus } from "../../src/status";
 import { assertSafeUrl } from "../../src/url";
 
 /** Same purpose as the copy in pipeline.ts: detect a cold container. */
@@ -349,6 +349,11 @@ function statusResponse(
   status: ClipStatus,
   pageId: string,
 ): Response {
+  // When the clip on the page was written. On a re-clip this is the only way to
+  // tell a completed run from the previous clip sitting untouched — `CLIPPED`
+  // says the same thing either way.
+  const written = describeClipTime(status.markerCreatedAt);
+
   switch (status.state) {
     case "clipped":
       // Says only what was actually checked. An earlier version asserted the
@@ -358,10 +363,14 @@ function statusResponse(
         id,
         `STATUS: CLIPPED\n\n` +
           `The page was read and the article is there.\n` +
-          `Source: ${status.sourceUrl ?? "(link present)"}\n\n` +
+          `Source: ${status.sourceUrl ?? "(link present)"}\n` +
+          `Clip written: ${written ?? "(time not reported by Notion)"}\n\n` +
           `It is safe to tell the user the clip succeeded. This confirms the article was ` +
           `written; it does not separately verify every image, so if the user reports a ` +
-          `broken image, relay that rather than insisting it worked.`,
+          `broken image, relay that rather than insisting it worked.\n\n` +
+          `If you asked for a re-clip, check the written time before reporting it as done: ` +
+          `an old timestamp means you are looking at the previous clip and the re-run has ` +
+          `not landed. Notion records that time to the minute.`,
       );
 
     case "in_progress":
@@ -369,7 +378,8 @@ function statusResponse(
         id,
         `STATUS: IN_PROGRESS\n\n` +
           `The clip has not finished yet, so the outcome is not known. Do NOT report success ` +
-          `or failure.\n\n` +
+          `or failure.\n` +
+          `Run started: ${written ?? "(time not reported by Notion)"}\n\n` +
           `Call clip_status with page_id ${pageId} again now. This tool waits for the work ` +
           `before answering, so calling it again IS how you wait — do not ask the user to ` +
           `prompt you. Repeat until it returns CLIPPED or FAILED. An article with many images ` +

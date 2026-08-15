@@ -51,7 +51,8 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │       │                           #   MCP connector: clip_article + clip_status
 │       ├── clip.ts                 # HTTP endpoint. Validates synchronously, returns a
 │       │                           #   real status code. Used from a terminal for testing
-│       └── clip-background.ts      # The worker. 15 minutes, always answers 202
+│       ├── clip-background.ts      # The worker. 15 minutes, always answers 202
+│       └── health.ts               # What is deployed and how it is configured. No secrets
 │
 ├── src/
 │   │   # --- light: no jsdom. Safe to import from a synchronous function ---
@@ -62,9 +63,10 @@ Deployed as a Netlify function. Called by a Claude session over HTTPS with a sha
 │   ├── request.ts                  # Auth + request parsing, shared by all entry points
 │   ├── url.ts                      # Fetch-target safety check (SSRF guard)
 │   ├── notion.ts                   # API client, parent check, append, file upload
-│   ├── status.ts                   # Reading and waiting on a clip's state
+│   ├── status.ts                   # Reading and waiting on a clip's state, and when it ran
 │   │   # --- heavy: pulls jsdom. Background function only ---
 │   ├── extract.ts                  # Fetch + Readability + paywall/bot-block detection
+│   ├── lead-image.ts               # The hero that sits outside the article body
 │   ├── blocks.ts                   # DOM walk → Notion blocks, rich text, tables, images
 │   └── pipeline.ts                 # Orchestration: idempotency, status, image import, append
 │
@@ -290,7 +292,9 @@ Set in the Netlify UI (Site configuration → Environment variables). Never in t
 
 ### Post-deploy check
 
-Hit `/.netlify/functions/health` — it reports whether required env vars are present and which Notion API version is pinned, without echoing any secret values.
+Hit `/.netlify/functions/health` — it reports the **deployed commit SHA**, whether each required env var is present, and the live settings (Notion API version, `LEAD_IMAGE_MODE`), without echoing any secret value. `200` when configured, `503` when a required secret is missing.
+
+The commit is the point: "is the fix actually live?" is otherwise a build-log hunt, and a change that ships but does nothing looks identical to a change that never shipped. ⚠️ **Function logs drop entries** — a request that provably ran has been observed missing from them — so a missing log line is not evidence that something didn't happen.
 
 ---
 
