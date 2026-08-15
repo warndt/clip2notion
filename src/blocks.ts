@@ -170,6 +170,25 @@ function makeRichText(content: string, annotations: Annotations, link: string | 
   return rt;
 }
 
+/**
+ * A label and its value, run together with no whitespace between them.
+ *
+ * `<strong>Image Credits:</strong>Getty Images` carries no space anywhere in the
+ * source — the gap you see on the site comes from how the bold run is spaced
+ * when rendered, and none of that survives into plain text. Notion shows
+ * "Image Credits:Getty Images", which reads as a typo on every clipped image.
+ *
+ * Scoped hard to a colon, because the general rule is wrong: inserting a space
+ * at every formatting boundary would turn `<b>un</b>likely` into "un likely".
+ * A colon immediately followed by a word, *across a formatting change*, is a
+ * missing space in prose. Runs that share formatting are one text node in the
+ * source and are never touched — this is about rendering, not about editing
+ * what the author wrote.
+ */
+function needsSpaceBetween(prev: RichText, next: RichText): boolean {
+  return /:$/.test(prev.text.content) && /^[\p{L}\p{N}]/u.test(next.text.content);
+}
+
 /** Merge adjacent runs that share formatting, then trim the outer whitespace. */
 function tidy(items: RichText[]): RichText[] {
   const merged: RichText[] = [];
@@ -182,6 +201,10 @@ function tidy(items: RichText[]): RichText[] {
     ) {
       prev.text.content += item.text.content;
     } else {
+      if (prev && needsSpaceBetween(prev, item)) {
+        merged.push({ ...item, text: { ...item.text, content: ` ${item.text.content}` } });
+        continue;
+      }
       merged.push(item);
     }
   }
