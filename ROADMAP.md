@@ -157,16 +157,16 @@ Also corrected: the `CLIPPED` response asserted images were stored in Notion, wh
 
 ---
 
-## M4 — Lead image 🟡
+## M4 — Lead image ✅
 
 Articles whose hero sits **outside** the article body lost it entirely. Nothing failed and nothing was logged: images are only ever collected from Readability's output, so an image above the article root was never seen. Confirmed in the code before building — 8 images in the raw TechCrunch document, 2 in the extracted body, no filter involved.
 
-- 🟡 `src/lead-image.ts` — candidate selection over the region from the top of the document to the first real body paragraph, which covers both places a hero hides: above the `<h1>`, and just inside the body ahead of the prose. Exclusions for SVGs, furniture filenames, sub-200px images, tracking pixels, `data:` URIs, and chrome ancestry. Runs before Readability, which mutates the document it is given.
-- 🟡 Dedupe by normalised URL — host plus path, no query — because the same file appears at different CDN sizes in the two places. WordPress's `-1024x683` resize suffix is stripped too: the same hazard expressed in the path.
-- 🟡 **No metadata fallback.** On the repro article `og:image` is a *body* image at another size, so a naive fallback would insert a duplicate and still miss the hero. Substack's is an auto-generated social card with the headline burned in. Revisit only if the logs show a class of sites worth catching.
-- 🟡 Placed below the `Source:` line and above the first heading, before image import, so it stores in Notion and degrades to a hotlink by exactly the path body images use.
-- 🟡 `lead_image_found` / `lead_image_skipped_duplicate` / `lead_image_none` / `lead_image_rejected` — the last two matter most: they are the only way to tell "this site has no hero" from "the exclusions are too tight".
-- 🟡 19 tests, including the dedupe, both no-op modes, and the guarantee that a lead image can never fail a clip.
+- ✅ `src/lead-image.ts` — candidate selection over the region from the top of the document to the first real body paragraph, which covers both places a hero hides: above the `<h1>`, and just inside the body ahead of the prose. Exclusions for SVGs, furniture filenames, sub-200px images, tracking pixels, `data:` URIs, and chrome ancestry. Runs before Readability, which mutates the document it is given.
+- ✅ Dedupe by normalised URL — host plus path, no query — because the same file appears at different CDN sizes in the two places. WordPress's `-1024x683` resize suffix is stripped too: the same hazard expressed in the path.
+- ✅ **No metadata fallback.** On the repro article `og:image` is a *body* image at another size, so a naive fallback would insert a duplicate and still miss the hero. Substack's is an auto-generated social card with the headline burned in. Revisit only if the logs show a class of sites worth catching.
+- ✅ Placed below the `Source:` line and above the first heading, before image import, so it stores in Notion and degrades to a hotlink by exactly the path body images use.
+- ✅ `lead_image_found` / `lead_image_skipped_duplicate` / `lead_image_none` / `lead_image_rejected` — the last two matter most: they are the only way to tell "this site has no hero" from "the exclusions are too tight".
+- ✅ 19 tests, including the dedupe, both no-op modes, and the guarantee that a lead image can never fail a clip.
 - ⬜ **Ships as `LEAD_IMAGE_MODE=detect`** — selection runs and logs, nothing is written. Flip to `insert` after reading the logs from a spread of real clips. ⚠️ A Netlify env change needs a redeploy before live functions see it.
 
 **Detect mode has already earned itself**, before deploying: a substring match on `newsletter` in the chrome exclusions rejected *every* Substack hero, because Substack labels the article element itself `newsletter-post`. Found by running selection over a real post. Fixed, and an `<article>`/`<main>` element is now never read as chrome whatever its classes say.
@@ -194,7 +194,7 @@ Deployed at `64061f1`. Every outcome was correct, and **nothing would have been 
 
 Four furniture images rejected, zero real heroes rejected, zero wrong candidates, dedupe firing correctly on two different CDNs. The one evidence type still missing is a live `lead_image_found` — the flag should not flip until an article with a hero *above* the body has been clipped in detect mode. The original repro article is the guaranteed case.
 
-- 🟡 **Flipped to `insert`** (2026-08-15), by changing the default in `config.ts` rather than setting a Netlify env var — an env change needs a redeploy anyway, and a default in code is one fewer thing to forget. `LEAD_IMAGE_MODE=detect` or `off` in the Netlify UI is the rollback.
+- ✅ **Flipped to `insert`** (2026-08-15), by changing the default in `config.ts` rather than setting a Netlify env var — an env change needs a redeploy anyway, and a default in code is one fewer thing to forget. `LEAD_IMAGE_MODE=detect` or `off` in the Netlify UI is the rollback.
 
 **Done when:** a re-clip of the repro article shows the pattern screenshot at the top and the Yaris photo exactly once. **Met 2026-08-15**, confirmed by the calling session:
 
@@ -205,14 +205,14 @@ Four furniture images rejected, zero real heroes rejected, zero wrong candidates
 
 ---
 
-## M5 — Make "did it actually run?" answerable 🟡
+## M5 — Make "did it actually run?" answerable ✅
 
 Raised by the calling session after three forced re-clips it could not verify, and worth more than it looks: every hour lost tonight went on that question rather than on the clip itself.
 
-- 🟡 **`netlify/functions/health.ts`** — reports the deployed commit SHA, presence (never value) of each required secret, and the live settings. `200` configured, `503` misconfigured. **CLAUDE.md documented this endpoint as the post-deploy check and it did not exist** — hitting it returned the 404 page, so that check had never once worked.
-- 🟡 **`clip_status` now reports when the clip was written**, absolutely and relatively. Read from the header block's Notion `created_time`, so nothing new is written to the page, the tool contract is unchanged, and the idempotency key is untouched. A forced re-clip deletes the old header and writes a new one, so the time moves when a run really happened.
-- 🟡 `IN_PROGRESS` reports when the run started, which also makes a dead run visible as an old marker.
-- 🟡 Known limit, deliberately accepted: Notion records block creation to the minute, so two runs inside the same minute are indistinguishable. This is a *report*, never a decision input — nothing branches on it.
+- ✅ **`netlify/functions/health.ts`** — reports the deployed commit SHA, presence (never value) of each required secret, and the live settings. `200` configured, `503` misconfigured. **CLAUDE.md documented this endpoint as the post-deploy check and it did not exist** — hitting it returned the 404 page, so that check had never once worked.
+- ✅ **`clip_status` now reports when the clip was written**, absolutely and relatively. Read from the header block's Notion `created_time`, so nothing new is written to the page, the tool contract is unchanged, and the idempotency key is untouched. A forced re-clip deletes the old header and writes a new one, so the time moves when a run really happened.
+- ✅ `IN_PROGRESS` reports when the run started, which also makes a dead run visible as an old marker.
+- ✅ Known limit, deliberately accepted: Notion records block creation to the minute, so two runs inside the same minute are indistinguishable. This is a *report*, never a decision input — nothing branches on it.
 
 ### The timestamp did its job on the first run that used it
 
@@ -236,21 +236,21 @@ So the logs are usable as positive evidence (a line that is there happened) and 
 
 ---
 
-## M6 — Images that never became images 🟡
+## M6 — Images that never became images ✅
 
 Reported from real use: an ArchDaily project page clipped 2 images out of a 21-image article, and a Divisare project clipped **none at all**. Both reported success. Diagnosed by counting images at each stage rather than by reading the sites: Readability's output held 21 and 33 images respectively, so nothing was lost upstream — the converter was throwing them away.
 
 **Root cause: an `<img>` wrapped in an `<a>` was flattened into link text.** `<a>` is an inline tag, so a linked image landed in a run of prose and `collectRichText` degraded it to a link carrying its alt text. The image itself was gone. This is how a very large class of sites publishes photography — every photo links to its full-size version or a lightbox — so it was never one awkward site. ArchDaily lost 18 of 21 images this way; Divisare lost all 33.
 
-- 🟡 An inline wrapper holding an image and no text is now treated as a block, in all three places that split inline from block content. A genuinely inline image — an icon inside a sentence — is unchanged, which is what the no-text condition protects.
-- 🟡 A paragraph with no words of its own but an image inside it converts as a figure. That is how Divisare publishes every photograph.
-- 🟡 A list item holding only an image emits the image rather than a bullet. ArchDaily's gallery strip is `ul > li > a > picture > img`, eleven of them; as bullets they would read as a list of nothing.
+- ✅ An inline wrapper holding an image and no text is now treated as a block, in all three places that split inline from block content. A genuinely inline image — an icon inside a sentence — is unchanged, which is what the no-text condition protects.
+- ✅ A paragraph with no words of its own but an image inside it converts as a figure. That is how Divisare publishes every photograph.
+- ✅ A list item holding only an image emits the image rather than a bullet. ArchDaily's gallery strip is `ul > li > a > picture > img`, eleven of them; as bullets they would read as a list of nothing.
 
 **Two more defects surfaced while fixing it, both older than this change:**
 
-- 🟡 **`pickImageUrl` never looked at the inner `<img>` when handed a `<picture>`.** The figure and gallery paths hand over the `<picture>`, whose own attributes are empty — so any `<picture>` without a `<source>` yielded no URL at all, and one with only a phone-sized source yielded the thumbnail. Caught by a test written for something else.
-- 🟡 **The phone-sized `<source>` outranked the full image.** `<source media="(max-width: 767px)">` is the small copy; preferring it archived a 6KB thumbnail while leaving the 98KB photograph on the source site. Now demoted rather than skipped — a first attempt that skipped them deleted images outright, because on a lazy-loaded image the mobile source is sometimes the only real URL in the markup. A small copy beats no copy.
-- 🟡 Loading animations no longer count as photographs. A real clip stored `assets.adsttc.com/doodles/flat/loader-white.gif` in Notion, permanently.
+- ✅ **`pickImageUrl` never looked at the inner `<img>` when handed a `<picture>`.** The figure and gallery paths hand over the `<picture>`, whose own attributes are empty — so any `<picture>` without a `<source>` yielded no URL at all, and one with only a phone-sized source yielded the thumbnail. Caught by a test written for something else.
+- ✅ **The phone-sized `<source>` outranked the full image.** `<source media="(max-width: 767px)">` is the small copy; preferring it archived a 6KB thumbnail while leaving the 98KB photograph on the source site. Now demoted rather than skipped — a first attempt that skipped them deleted images outright, because on a lazy-loaded image the mobile source is sometimes the only real URL in the markup. A small copy beats no copy.
+- ✅ Loading animations no longer count as photographs. A real clip stored `assets.adsttc.com/doodles/flat/loader-white.gif` in Notion, permanently.
 
 Measured before and after, on the reported articles and on four already-verified ones:
 
@@ -352,6 +352,12 @@ Not the lead image, and not fixed here. On a real Noahpinion post, four content 
 This is silent content loss on a site that is already a known-awkward source (it also ate the headings and the footnotes). Same shape as those: the clip reports success and the page looks fine. Worth fixing by the same technique — rebuild or rescue the figures before Readability scores them — but it is a separate change from the hero, and it needs its own evidence about how many sites are affected.
 
 One consequence worth knowing meanwhile: because the hero on that post is one of the dropped images, the lead-image step inserts it rather than deduping it. Correct today, and self-correcting if this is ever fixed — the dedupe will simply start catching it.
+
+**An `<img>` can point at a PDF, and four did (2026-08-15):**
+
+The Divisare re-clip stored 29 of 33 images and degraded 4. All four are the project's **architectural drawings**, which Divisare publishes inside `<img>` tags pointing at `.pdf` URLs; the CDN serves `application/pdf` regardless of the `Accept` header, and asking for the same asset as `.jpg` 404s. So the degradation is correct — Notion's importer cannot take a PDF as an image — but those four drawings are now hotlinks to Divisare, which is exactly the impermanence this service exists to remove. They may also render as broken images on the page.
+
+The fix would be to import a non-image attachment as a Notion **file block** rather than an image block: `POST /v1/file_uploads` accepts PDFs, so the drawing would be stored and openable. That is a new block type in the converter and worth doing only if this recurs — though on architecture sites it very likely will, since plans and sections are usually PDFs.
 
 **Left alone in the M6 image work, deliberately:**
 
