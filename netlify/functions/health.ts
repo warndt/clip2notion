@@ -15,17 +15,39 @@
 
 import { TUNABLES } from "../../src/config";
 
-/** Netlify sets these on the deploy; absent under `netlify dev`. */
-function deployInfo(): Record<string, string | null> {
+/**
+ * Which deploy is answering.
+ *
+ * ⚠️ **`COMMIT_REF` is a build variable and is not set at function runtime.**
+ * The first version of this endpoint read it and reported `commit: null` —
+ * an identity endpoint with no identity in it. Measured against the live
+ * deploy, not assumed.
+ *
+ * The deploy id *is* available, on the context argument Netlify passes as the
+ * second parameter. It maps to a commit in one step: the Netlify UI's deploy
+ * page, or `netlify api getDeploy --data '{"deploy_id":"..."}'`.
+ *
+ * Typed loosely on purpose — reading three fields defensively is cheaper than
+ * taking on `@netlify/functions` as a dependency for its `Context` type.
+ */
+interface NetlifyContext {
+  deploy?: { id?: string; context?: string; published_at?: string };
+  site?: { name?: string };
+}
+
+function deployInfo(context: NetlifyContext | undefined): Record<string, string | null> {
   return {
+    deploy_id: context?.deploy?.id ?? process.env.DEPLOY_ID ?? null,
+    published_at: context?.deploy?.published_at ?? null,
+    context: context?.deploy?.context ?? process.env.CONTEXT ?? null,
+    site: context?.site?.name ?? process.env.SITE_NAME ?? null,
+    // Only present if someone sets it as a real environment variable in the UI.
     commit: process.env.COMMIT_REF ?? null,
-    branch: process.env.BRANCH ?? null,
-    context: process.env.CONTEXT ?? null,
-    deploy_id: process.env.DEPLOY_ID ?? null,
+    note: "commit is null unless COMMIT_REF is set in the UI; deploy_id identifies the build",
   };
 }
 
-export default async function handler(_req: Request): Promise<Response> {
+export default async function handler(_req: Request, context?: NetlifyContext): Promise<Response> {
   const hasToken = Boolean(process.env.NOTION_TOKEN);
   const hasSecret = Boolean(process.env.CLIP_SHARED_SECRET);
   const ok = hasToken && hasSecret;
@@ -34,7 +56,7 @@ export default async function handler(_req: Request): Promise<Response> {
     service: "clip2notion",
     ok,
     checked_at: new Date().toISOString(),
-    deploy: deployInfo(),
+    deploy: deployInfo(context),
     env: {
       // Presence only. Reporting the value of either of these would turn a
       // convenience endpoint into a credential leak.
