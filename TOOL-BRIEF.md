@@ -1,6 +1,6 @@
 # clip2notion — tool reference
 
-**Last updated: 2026-08-14.** Describes the connector as deployed on that date. If the tool changes, this is the document to change with it.
+**Last updated: 2026-08-15.** Describes the connector as deployed on that date. If the tool changes, this is the document to change with it. The Notion mirror was re-synced on the 15th.
 
 Covers only the clipping tool — not the Resources database, Areas, Tags, or the rest of the workflow.
 
