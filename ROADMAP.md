@@ -22,7 +22,7 @@ Everything else is negotiable. These five fail *invisibly* — the page looks fi
 
 > **State as of 2026-08-15:** the service works end to end and is in ordinary use. An article is clipped from a claude.ai chat session via the MCP connector, images stored in Notion, structure intact, exactly one copy after a forced re-clip.
 >
-> Since the 14th, on the back of real clips rather than planning: the **lead image** above the article body is captured (M4); `clip_status` reports **when** a clip was written and `/health` reports what is deployed, so "did it actually run?" and "is the fix live?" are both answerable (M5); and **images wrapped in links** — a whole class that was being silently discarded — are converted properly (M6). Deployed at `55f4b0e`.
+> Since the 14th, on the back of real clips rather than planning: the **lead image** above the article body is captured (M4); `clip_status` reports **when** a clip was written and `/health` reports what is deployed, so "did it actually run?" and "is the fix live?" are both answerable (M5); and **images wrapped in links** — a whole class that was being silently discarded — are converted properly (M6). Deployed at `d225195`.
 >
 > Everything below is either history, or optional work that real usage will prioritise better than planning would.
 
@@ -189,7 +189,7 @@ Verified against live markup, fetched 2026-08-14:
 
 ### Detect mode in the field — first four live clips (2026-08-14)
 
-Deployed at `64061f1`. Every outcome was correct, and **nothing would have been inserted on any of them** — all four articles already carried their hero inside the body.
+Deployed at `b513ae3`. Every outcome was correct, and **nothing would have been inserted on any of them** — all four articles already carried their hero inside the body.
 
 | Clip | Logged | Verified against the source |
 |---|---|---|
