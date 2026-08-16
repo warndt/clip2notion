@@ -286,6 +286,27 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 Write new work here. Do not correct it immediately.
 
+**⬜ An old error callout hides a clip that operated. A page can report `FAILED` permanently although it holds a complete article (found 2026-08-16).**
+
+Found by the test session after the secret rotation. The caller reported it correctly and could not tell the cause from the tool output, because the tool gives no value that shows the cause.
+
+The sequence. A clip of `fantasyliterature.com` failed with a true 403 (`clp_11bxvfs0`) and left an error callout. The caller then called `clip_article` again on the **same page** with a different URL, `sfbook.com` (`clp_na0cmtz7`). That run operated fully and wrote the complete article. Each `clip_status` call after it gave the **old** `fantasyliterature.com` error, with the old `clip_id`.
+
+**The cause is the order of the tests in `deriveClipStatus` (`status.ts:106`).** It looks for an error callout first, before the progress callout and before the clip header. A run without `force` never deletes an error callout: `clearPreviousClip` is the only code that deletes an `ERROR_MARKER` block (`pipeline.ts:242`), and it operates only inside `if (request.force)` (`pipeline.ts:106`). Therefore the page gives `failed` continuously. This does not correct itself, and the value is not late. It is incorrect.
+
+**This also defeats `awaitOwnRun` (`status.ts:288`).** That function exists to prevent a borrowed result. It finds the marker of its own run, then calls `deriveClipStatus`, receives the old `failed`, sees a state that is not `in_progress`, and gives that state as the result of **its own** run. It protects the **start** of a run and does not protect the **result** that it reads.
+
+**Why this is more than an incorrect message.** Rule 4 of the caller says: never try again after `FAILED`, and give the cause to the user. Therefore the user hears "the website refused the request" about a page that holds a correct article, and the message tells the user to use the Web Clipper. That action writes the article to the page a second time.
+
+**The two values that are necessary are almost present already.**
+
+- The error callout already contains the `clip_id` (`pipeline.ts:286`). Therefore the page knows which run failed. `ClipStatus` does not read this value, so nothing can compare it.
+- `failed` is the **only** state that gives no `markerCreatedAt` (`status.ts:110`). `clipped`, `in_progress`, and `foreign_content` each give one. Therefore the caller has a time value for each state except the one state where a stale value is dangerous.
+
+A possible correction, for a decision and not for immediate work: give `markerCreatedAt` and the `clip_id` of the failure to the `failed` state, then let `awaitOwnRun` refuse a `failed` result whose `clip_id` is not its own. Do not delete the callout automatically. ⚠️ `deriveClipStatus` is a pure function with tests, and the order of its tests is deliberate: an error callout must have a higher rank than partial content, because a run that fails after a partial write leaves both. A correction must keep that rank and must separate "an error from **this** run" from "an error that is already on the page".
+
+The test page is `clip2notion rotation test` (`3be87615-cd32-818b-8f74-e489c25317d7`). It holds the sfbook article, the old error callout, and a URL property that still gives the fantasyliterature URL. Keep it. It is the test case.
+
 **✅ `mcp.ts` accepted the token from two routes that nothing uses. Removed and approved (2026-08-16).**
 
 From a security audit. `providedToken()` read the token from four locations: the `/mcp/<token>` path segment, a `?token=` query string, an `Authorization: Bearer` header, and an `X-Clip-Secret` header. The last two of these four were never used. The connector uses the path. A terminal test uses the header.
