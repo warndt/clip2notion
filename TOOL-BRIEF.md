@@ -117,7 +117,11 @@ The **first line** of each response is a fixed value. Use that line and not the 
 
 A failure response also sets `isError`. **Do not depend on this flag.** It does not always arrive at the model as a field that a machine can read. The first-line value and the words arrive. This is the reason that each failure message starts with a clear phrase and does not depend on a flag.
 
-**`CLIPPED`, `IN_PROGRESS`, and `FOREIGN_CONTENT` each give a time.** On a `CLIPPED` result, `Clip written:` is the creation time of the header of that clip. On `IN_PROGRESS`, `Run started:` is the time when the run wrote its marker. On `FOREIGN_CONTENT`, `Last change:` is the newest block on the page. Each time is absolute and relative: `2026-08-15 00:31 UTC (2 minutes ago)`.
+**Each of `CLIPPED`, `IN_PROGRESS`, `FAILED`, and `FOREIGN_CONTENT` gives a time.** On a `CLIPPED` result, `Clip written:` is the creation time of the header of that clip. On `IN_PROGRESS`, `Run started:` is the time when the run wrote its marker. On `FAILED`, `Error written:` is the time of the error callout. On `FOREIGN_CONTENT`, `Last change:` is the newest block on the page. Each time is absolute and relative: `2026-08-15 00:31 UTC (2 minutes ago)`.
+
+**An error callout stays on the page. Therefore read the time on a `FAILED` result.** Only a clip with `force` deletes an error callout. A page can hold an error from an earlier run and a correct article from a later run. If the time of the error is older than the clip that you asked for, the error is from a different run and says nothing about your run.
+
+The service now makes this decision for you: a clip that the service wrote **after** an error callout supersedes that callout, and the page gives `CLIPPED`. The response then contains a `⚠️ NOTE` that gives the text of the old error and says that it does not describe this clip. Tell the user that the callout is old and that a person can delete it. **Do not give it as a failure.** Two times inside the same minute cannot be compared, so the service gives `FAILED` in that condition. It never reports success when it cannot be certain.
 
 **`FOREIGN_CONTENT` is not a failure and is not a run.** It means that the page has content and that none of the content has a marker from this service. The most frequent cause is a Web Clipper save that a person made after this service failed for that article. Other causes are notes from the user, or a clip that a person deleted partially. The service cannot tell which cause applies, and it says this instead of a guess.
 

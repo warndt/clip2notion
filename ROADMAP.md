@@ -286,7 +286,17 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 Write new work here. Do not correct it immediately.
 
-**⬜ An old error callout hides a clip that operated. A page can report `FAILED` permanently although it holds a complete article (found 2026-08-16).**
+**🟡 An old error callout hides a clip that operated. A page can report `FAILED` permanently although it holds a complete article (found and corrected 2026-08-16). Wil must review it.**
+
+**The correction, deployed on 2026-08-16.** Three parts, and none of them deletes a block.
+
+1. `deriveClipStatus` now gives a clip header a higher rank than an error callout **only when the header is strictly newer**. Both times must be present. Notion records a time to the minute, and a partial write and its error frequently have the same minute, so a time that is the same gives `failed`. The service never reports success when it cannot be certain. The original rank does not change: the error of a run is always at least as new as the header of that run, because the service writes the error last.
+2. `ClipStatus` now gives `markerClipId` and, for `failed`, `markerCreatedAt`. Both callouts already contained the `clip_id`. Nothing read it. `awaitOwnRun` now refuses a `failed` result whose `clip_id` is not its own and continues to wait.
+3. The service now selects the **newest** error callout and not the first one. The writes are appends, so an old callout is above a new callout. The first callout is the incorrect end of the page, and reading it would also hide the failure of the current run behind an older failure.
+
+The `CLIPPED` response now contains a `⚠️ NOTE` with the text of the superseded error, because the callout stays on the page. `FAILED` now reports `Error written:`. Eight tests. `TOOL-BRIEF.md` section 3 changed in the same commit. ⚠️ **A person must update the Notion copy.**
+
+The original report:
 
 Found by the test session after the secret rotation. The caller reported it correctly and could not tell the cause from the tool output, because the tool gives no value that shows the cause.
 

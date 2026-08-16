@@ -259,6 +259,97 @@ test("the header must carry a link, not just the prefix text", () => {
   assert.notEqual(deriveClipStatus([linkless]).state, "clipped");
 });
 
+// --- An error callout from a run that is not this one ------------------------
+//
+// Live case, 2026-08-16. A clip of fantasyliterature.com failed with a real 403
+// and left its callout. A second clip_article on the same page, for a different
+// URL, wrote the whole article — and every clip_status afterwards returned the
+// first run's error verbatim, for good, because only `force` sweeps callouts.
+// A caller obeying "never retry after FAILED" relays that to the user, who is
+// then told to use the Web Clipper and appends a duplicate.
+
+/** `at` as a created_time, since these rules turn entirely on ordering. */
+function stamped(block: NotionBlockRecord, at: string, id?: string): NotionBlockRecord {
+  return { ...block, created_time: at, ...(id ? { id } : {}) } as NotionBlockRecord;
+}
+
+test("an error from an earlier run does not mask a clip written after it", () => {
+  const status = deriveClipStatus([
+    stamped(failure, "2026-08-16T23:13:00.000Z"),
+    stamped(header, "2026-08-16T23:14:00.000Z"),
+    paragraph,
+  ]);
+
+  assert.equal(status.state, "clipped", "a later clip supersedes an earlier run's error");
+  assert.equal(status.sourceUrl, "https://example.com/piece");
+});
+
+test("the superseded error is reported, not silently swallowed", () => {
+  // The callout stays on the page — the service deletes nothing on its own
+  // initiative — so the caller has to be told it is there and whose it is.
+  const status = deriveClipStatus([
+    stamped(failure, "2026-08-16T23:13:00.000Z"),
+    stamped(header, "2026-08-16T23:14:00.000Z"),
+  ]);
+
+  assert.match(status.staleError ?? "", /Paywall detected/);
+});
+
+test("an error written after the header still reports failed", () => {
+  // The original ordering rule, and the reason it exists: a run that dies
+  // partway leaves partial content, its header, and then its error. Reporting
+  // that as clipped would tell the user a truncated article is fine.
+  const status = deriveClipStatus([
+    stamped(header, "2026-08-16T23:14:00.000Z"),
+    paragraph,
+    stamped(failure, "2026-08-16T23:15:00.000Z"),
+  ]);
+
+  assert.equal(status.state, "failed");
+});
+
+test("a header and an error sharing one minute reads as failed", () => {
+  // Notion records creation to the minute, so a partial write and its error
+  // routinely carry the same stamp. Ambiguity must resolve to failure: never
+  // claim success on a page that cannot be read confidently.
+  const at = "2026-08-16T23:14:00.000Z";
+  assert.equal(deriveClipStatus([stamped(header, at), stamped(failure, at)]).state, "failed");
+});
+
+test("an untimed error still outranks a header, as before", () => {
+  // Both timestamps are required to supersede. Without them nothing can be
+  // ordered, and the safe reading is the one that does not claim success.
+  assert.equal(deriveClipStatus([failure, header, paragraph]).state, "failed");
+});
+
+test("failed carries the failing run's id and time, so staleness is checkable", () => {
+  const status = deriveClipStatus([stamped(failure, "2026-08-16T23:13:00.000Z")]);
+
+  assert.equal(status.state, "failed");
+  assert.equal(status.markerClipId, "clp_test1", "the callout already embeds its clip_id");
+  assert.equal(status.markerCreatedAt, "2026-08-16T23:13:00.000Z");
+});
+
+test("the newest error callout wins, not the first one on the page", () => {
+  // Our writes are appends, so a leftover callout sits ABOVE the one this run
+  // just wrote. Reading the first would report an old verdict in preference to
+  // the current one — and would hide this run's own failure behind it.
+  const old = stamped(record(errorCallout("Old trouble.", "clp_older"), "old"), "2026-08-16T23:13:00.000Z");
+  const mine = stamped(record(errorCallout("Fresh trouble.", "clp_mine"), "mine"), "2026-08-16T23:20:00.000Z");
+
+  const status = deriveClipStatus([old, mine]);
+
+  assert.equal(status.markerClipId, "clp_mine");
+  assert.match(status.detail ?? "", /Fresh trouble/);
+});
+
+test("in_progress also reports which run wrote the marker", () => {
+  const status = deriveClipStatus([stamped(progress, "2026-08-16T23:14:00.000Z")]);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerClipId, "clp_test1");
+});
+
 // --- When the clip was written ---------------------------------------------
 
 test("clipped reports when the header was created, so a re-clip is verifiable", () => {
