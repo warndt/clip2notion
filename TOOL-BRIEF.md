@@ -46,7 +46,7 @@ A forced re-clip deletes everything from the `Source:` line to the end of the pa
 
 ### When something is properly broken
 
-First, **check what is running**: [<your-site>.netlify.app/.netlify/functions/health](https://<your-site>.netlify.app/.netlify/functions/health) answers with the deployed commit, whether each required secret is present, and the current settings. It never echoes a secret's value. A `503` there means the service is misconfigured and no clip will work until it is fixed.
+First, **check what is running**: `https://<your-site>.netlify.app/.netlify/functions/health` answers with the deployed commit, whether each required secret is present, and the current settings. It never echoes a secret's value. A `503` there means the service is misconfigured and no clip will work until it is fixed.
 
 Then Netlify → the clip2notion site → **Function logs**. Every run is tagged with a `clip_id`. `image_degraded` and `image_import_failed` mark images that fell back to hotlinks — a cluster of those means something systematic about that site rather than a one-off.
 
@@ -212,6 +212,8 @@ URL form — **the token is a path segment, not a query parameter**:
 ```
 https://<your-site>.netlify.app/mcp/<CLIP_SHARED_SECRET>
 ```
+
+The deployed instance's real host belongs in the Notion copy of this document, which only the operator and the calling session read. Keep it out of the public repository.
 
 The `?token=` form is still accepted by the server but **does not work through claude.ai** — the query string does not survive the trip, so the connector attaches and then reports no tools. This cost hours to diagnose; don't reintroduce it.
 
