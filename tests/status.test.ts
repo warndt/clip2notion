@@ -90,6 +90,51 @@ test("a half-deleted article with no markers is NOT reported as not_started", ()
   assert.equal(status.state, "in_progress");
 });
 
+test("unattributed content is dated, so the caller can time it out", () => {
+  // A page the Notion Web Clipper filled looks exactly like the half-deleted
+  // clip above: content, no marker of ours. It reported IN_PROGRESS to ten
+  // consecutive calls with no time attached, and nothing the caller could do
+  // would ever end that — the fifteen-minute rule needs a timestamp to apply to.
+  // Reporting the newest block gives it one: a live run has a block seconds
+  // old, a Web Clipper save from hours ago does not.
+  const blocks = Array.from({ length: 8 }, (_, i) =>
+    record(
+      {
+        object: "block",
+        type: "paragraph",
+        paragraph: { rich_text: [{ type: "text", text: { content: `clipper para ${i}` } }] },
+        created_time: `2026-08-16T18:${String(40 + i).padStart(2, "0")}:00.000Z`,
+      },
+      `wc-${i}`,
+    ),
+  );
+
+  const status = deriveClipStatus(blocks);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerCreatedAt, "2026-08-16T18:47:00.000Z", "the newest block, not the oldest");
+});
+
+test("unattributed content with no timestamps still reports a state", () => {
+  // Notion has always stamped created_time, but a missing one must degrade to
+  // "no time reported" rather than throwing or inventing one.
+  const blocks = Array.from({ length: 6 }, (_, i) =>
+    record(
+      {
+        object: "block",
+        type: "paragraph",
+        paragraph: { rich_text: [{ type: "text", text: { content: `para ${i}` } }] },
+      },
+      `undated-${i}`,
+    ),
+  );
+
+  const status = deriveClipStatus(blocks);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerCreatedAt, undefined);
+});
+
 test("only a genuinely empty page is not_started", () => {
   assert.equal(deriveClipStatus([]).state, "not_started");
 
