@@ -186,6 +186,7 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
       code: clipError.code,
       transient: clipError.transient,
       content_written: contentWritten,
+      http_status: clipError.httpStatus ?? null,
       detail: clipError.message,
     });
 

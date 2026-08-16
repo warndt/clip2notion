@@ -153,8 +153,18 @@ export async function fetchArticle(rawUrl: string): Promise<FetchResult> {
         continue;
       }
 
-      if (isBlockedStatus(response.status)) {
-        throw errors.blocked(`HTTP ${response.status} from ${current.hostname}`);
+      // 401/402 are genuine login and payment walls. 403/451 are the edge
+      // refusing us, which is a different thing to tell the user about: no
+      // account exists that would fix it. Collapsing the two sent people to the
+      // Web Clipper believing they needed a login they did not need.
+      if (response.status === 401 || response.status === 402) {
+        throw errors.paywalled(`HTTP ${response.status} from ${current.hostname}`);
+      }
+      if (response.status === 429) {
+        throw errors.rateLimited(current.hostname);
+      }
+      if (response.status === 403 || response.status === 451) {
+        throw errors.refused(response.status, current.hostname);
       }
       if (!response.ok) {
         throw errors.fetchRejected(response.status, current.href);
@@ -182,12 +192,6 @@ export async function fetchArticle(rawUrl: string): Promise<FetchResult> {
   }
 
   throw errors.fetchFailed(`More than ${TUNABLES.maxRedirects} redirects`);
-}
-
-function isBlockedStatus(status: number): boolean {
-  // 401/402/403 are login or payment walls; 451 is legal blocking;
-  // 429 at fetch time from a cold IP is rate-limiting us as a bot.
-  return status === 401 || status === 402 || status === 403 || status === 451 || status === 429;
 }
 
 // --- Extract ---------------------------------------------------------------
@@ -294,7 +298,7 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
 
   const pageTitle = (doc.title || "").toLowerCase();
   if (BOT_BLOCK_TITLES.some((marker) => pageTitle.includes(marker))) {
-    throw errors.blocked(`Bot-block page title: ${doc.title}`);
+    throw errors.botChallenge(new URL(finalUrl).hostname, doc.title);
   }
 
   // Read metadata before Readability runs — it mutates the document it is given.
@@ -338,8 +342,8 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
     const bodyText = (doc.body?.textContent ?? "").toLowerCase();
     const phrase = PAYWALL_PHRASES.find((candidate) => bodyText.includes(candidate));
 
-    if (declaredPaywalled) throw errors.blocked("Page declares isAccessibleForFree: false");
-    if (phrase) throw errors.blocked(`Paywall wording found: "${phrase}"`);
+    if (declaredPaywalled) throw errors.paywalled("Page declares isAccessibleForFree: false");
+    if (phrase) throw errors.paywalled(`Paywall wording found: "${phrase}"`);
 
     throw errors.notExtractable(
       `Extracted only ${textLength} characters (minimum ${TUNABLES.minArticleChars})`,
@@ -347,7 +351,7 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
   }
 
   if (declaredPaywalled && textLength < TUNABLES.minArticleChars * 4) {
-    throw errors.blocked("Page declares isAccessibleForFree: false and returned only a teaser");
+    throw errors.paywalled("Page declares isAccessibleForFree: false and returned only a teaser");
   }
 
   return {

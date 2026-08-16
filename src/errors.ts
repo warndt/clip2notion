@@ -22,17 +22,20 @@ export class ClipError extends Error {
   readonly code: ClipErrorCode;
   readonly transient: boolean;
   readonly userMessage: string;
+  /** Upstream HTTP status, when the failure came from one. Logged as a field. */
+  readonly httpStatus?: number;
 
   constructor(
     code: ClipErrorCode,
     userMessage: string,
-    options: { transient?: boolean; detail?: string; cause?: unknown } = {},
+    options: { transient?: boolean; detail?: string; cause?: unknown; httpStatus?: number } = {},
   ) {
     super(options.detail ? `${code}: ${userMessage} (${options.detail})` : `${code}: ${userMessage}`);
     this.name = "ClipError";
     this.code = code;
     this.transient = options.transient ?? false;
     this.userMessage = userMessage;
+    if (options.httpStatus !== undefined) this.httpStatus = options.httpStatus;
     if (options.cause !== undefined) this.cause = options.cause;
   }
 }
@@ -53,12 +56,65 @@ export const errors = {
       { transient: status >= 500 || status === 429, detail: url },
     ),
 
-  blocked: (reason: string) =>
+  /**
+   * A real wall: the content sits behind a login or a subscription. Telling the
+   * user an account is needed is accurate here and nowhere else.
+   */
+  paywalled: (reason: string) =>
     new ClipError(
       "BLOCKED",
-      "Paywall or bot-block detected — this article can't be fetched without a login. " +
-        "Use the Notion Web Clipper for this one.",
+      "Paywall detected — this article is behind a login or subscription, so it can't " +
+        "be fetched. Use the Notion Web Clipper for this one.",
       { detail: reason },
+    ),
+
+  /**
+   * The site's edge refused the request outright.
+   *
+   * Not a paywall, and the distinction is the whole point of splitting this out:
+   * there is nothing to log into, and the article is usually readable in a
+   * browser right now. Bot protection scores the *client*, not the reader — and
+   * a server-side fetch from Node loses that scoring on its TLS fingerprint
+   * alone, whatever headers it sends.
+   *
+   * Measured on ecuad.ca 2026-08-16, from a residential IP: curl over HTTP/1.1
+   * and Python both got 200 while Node's `fetch` and `node:https` both got 403 —
+   * same IP, same headers, and undici's exact header set replayed through curl
+   * still got 200. Cipher and curve tuning from Node changed nothing.
+   *
+   * So "send browser-like headers" is not a fix for this, and the message must
+   * not imply the user did anything wrong or that an account would help.
+   */
+  refused: (status: number, host: string) =>
+    new ClipError(
+      "BLOCKED",
+      `${host} refused this request (HTTP ${status}) — its bot protection blocks ` +
+        "automated fetches. This is not a paywall and no login will help. The Notion " +
+        "Web Clipper runs inside your browser and should clip it fine.",
+      { detail: `HTTP ${status} from ${host}`, httpStatus: status },
+    ),
+
+  /** A challenge or interstitial arrived with a 200. Same cause as `refused`. */
+  botChallenge: (host: string, title: string) =>
+    new ClipError(
+      "BLOCKED",
+      `${host} served a bot-check page instead of the article — its bot protection ` +
+        "blocks automated fetches. This is not a paywall and no login will help. The " +
+        "Notion Web Clipper runs inside your browser and should clip it fine.",
+      { detail: `Bot-block page title: ${title}` },
+    ),
+
+  /**
+   * Rate-limited. Left non-transient on purpose: throwing would hand it to
+   * Netlify's 1min/2min retries, which is more traffic aimed at a host that has
+   * just asked for less. The message tells the user to retry instead.
+   */
+  rateLimited: (host: string) =>
+    new ClipError(
+      "BLOCKED",
+      `${host} is rate-limiting this service (HTTP 429). Not a paywall — wait a few ` +
+        "minutes and clip it again.",
+      { detail: `HTTP 429 from ${host}`, httpStatus: 429 },
     ),
 
   notExtractable: (detail: string) =>
