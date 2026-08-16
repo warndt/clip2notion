@@ -26,28 +26,28 @@ Everything else is negotiable. These five fail *invisibly* — the page looks fi
 >
 > Everything below is either history, or optional work that real usage will prioritise better than planning would.
 
-## M1 — MVP 🟡
+## M1 — MVP ✅
 
 The whole service, in one pass. Awaiting review.
 
-- 🟡 Project scaffolding — `package.json`, `tsconfig.json`, `netlify.toml`, `.env.example`
-- 🟡 `src/config.ts` — env plus every tunable in one place, all env-overridable
-- 🟡 `src/errors.ts` — error classes with plain-language user messages, each marked transient or not
-- 🟡 `src/notion.ts` — API client (paced requests, `429` + `Retry-After`, bounded retry), data-source parent check, paginated child listing, batched append, file upload with polling
-- 🟡 `src/extract.ts` — fetch with browser UA and redirect-by-redirect host checks, Readability, paywall/bot-block detection
-- 🟡 `src/blocks.ts` — direct DOM walk to Notion blocks, rich-text chunking, lazy-image URL resolution, tables with lossless fallback
-- 🟡 `src/pipeline.ts` — orchestration, idempotency, status callout lifecycle, image import
-- 🟡 `netlify/functions/clip.ts` — synchronous validation with real status codes, then dispatch
-- 🟡 `netlify/functions/clip-background.ts` — the worker; repeats every check, always answers 202
-- 🟡 `src/request.ts` — constant-time auth and request parsing, shared by both entry points
-- 🟡 `force: true` — delete the previous clip and re-run, scoped to the clip rather than the page
-- 🟡 Tests over the invisible-failure cases, including the header/first-content append ordering
+- ✅ Project scaffolding — `package.json`, `tsconfig.json`, `netlify.toml`, `.env.example`
+- ✅ `src/config.ts` — env plus every tunable in one place, all env-overridable
+- ✅ `src/errors.ts` — error classes with plain-language user messages, each marked transient or not
+- ✅ `src/notion.ts` — API client (paced requests, `429` + `Retry-After`, bounded retry), data-source parent check, paginated child listing, batched append, file upload with polling
+- ✅ `src/extract.ts` — fetch with browser UA and redirect-by-redirect host checks, Readability, paywall/bot-block detection
+- ✅ `src/blocks.ts` — direct DOM walk to Notion blocks, rich-text chunking, lazy-image URL resolution, tables with lossless fallback
+- ✅ `src/pipeline.ts` — orchestration, idempotency, status callout lifecycle, image import
+- ✅ `netlify/functions/clip.ts` — synchronous validation with real status codes, then dispatch
+- ✅ `netlify/functions/clip-background.ts` — the worker; repeats every check, always answers 202
+- ✅ `src/request.ts` — constant-time auth and request parsing, shared by both entry points
+- ✅ `force: true` — delete the previous clip and re-run, scoped to the clip rather than the page
+- ✅ Tests over the invisible-failure cases, including the header/first-content append ordering
 
 **Done when:** a long open-web article with images lands complete and readable, a paywalled URL fails with a clear message and no garbage, and a retry doesn't duplicate.
 
 ---
 
-## M3 — Make the service callable by its actual client ⬜
+## M3 — Make the service callable by its actual client ✅
 
 > **Numbered M3 because it was discovered third, but placed here because it blocks M2.** There is no point clipping twenty articles from a terminal when the real caller can't clip one. Do this before finishing M2 below.
 
@@ -57,13 +57,13 @@ The intended caller is a Claude session in the claude.ai chat interface. That en
 
 The M2 clips below prove the pipeline; they do **not** prove callability, because a terminal and that sandbox have different network access.
 
-- 🟡 **Spike: minimal remote MCP server** — `netlify/functions/mcp.ts`, served at `/mcp`. One diagnostic tool, `clip_probe`. Self-contained: imports nothing from `src/`, touches nothing in the clip path, so deleting the file leaves the service unchanged. Goes straight to `main` — there are no branch deploys configured and nothing in production to protect.
-- 🟡 **`clip_probe` exists to test the failure channels, not the happy path.** Four modes: `ok`, `tool_error` (a normal result flagged `isError` — how a paywall or wrong page id would surface), `protocol_error` (a JSON-RPC error object), and `thrown` (unhandled server exception). All four verified locally.
+- ✅ **Spike: minimal remote MCP server** — `netlify/functions/mcp.ts`, served at `/mcp`. One diagnostic tool, `clip_probe`. Self-contained: imports nothing from `src/`, touches nothing in the clip path, so deleting the file leaves the service unchanged. Goes straight to `main` — there are no branch deploys configured and nothing in production to protect.
+- ✅ **`clip_probe` exists to test the failure channels, not the happy path.** Four modes: `ok`, `tool_error` (a normal result flagged `isError` — how a paywall or wrong page id would surface), `protocol_error` (a JSON-RPC error object), and `thrown` (unhandled server exception). All four verified locally.
 - ✅ **Success criterion met: rejections reach the session specific and actionable.** Verdict: **port to MCP.** Observed from a real claude.ai session, 2026-08-13.
-- 🟡 **Ported.** `netlify/functions/mcp.ts` now serves `clip_article` and `clip_status`, authenticated by a token in the connector URL. The probe is gone; the pipeline is unchanged behind it.
-- 🟡 `src/pipeline.ts` gains `deriveClipStatus` (pure, tested) and `getClipStatus`.
-- 🟡 Caller documentation rewritten around the two tools and the dispatch-then-confirm loop.
-- 🟡 Deployed, connector re-pointed at `/mcp/<token>`, and a real clip run end to end from a chat session. **The query-string form did not survive** — claude.ai reached the endpoint with no query at all (`has_query: false` in every logged request), so the connector attached but its tools never loaded. A path segment carries the token reliably. Query, `Authorization` and `X-Clip-Secret` are all still accepted.
+- ✅ **Ported.** `netlify/functions/mcp.ts` now serves `clip_article` and `clip_status`, authenticated by a token in the connector URL. The probe is gone; the pipeline is unchanged behind it.
+- ✅ `src/pipeline.ts` gains `deriveClipStatus` (pure, tested) and `getClipStatus`.
+- ✅ Caller documentation rewritten around the two tools and the dispatch-then-confirm loop.
+- ✅ Deployed, connector re-pointed at `/mcp/<token>`, and a real clip run end to end from a chat session. **The query-string form did not survive** — claude.ai reached the endpoint with no query at all (`has_query: false` in every logged request), so the connector attached but its tools never loaded. A path segment carries the token reliably. Query, `Authorization` and `X-Clip-Secret` are all still accepted.
 
 ### Spike results — how each failure channel actually behaves
 
@@ -87,12 +87,12 @@ The spike's success text said "accepted, verify the page shortly". A session rel
 
 Returning only after the write confirms is not available: a long illustrated article takes minutes and a tool call cannot wait that long. So the fix is a second tool.
 
-- 🟡 **`clip_status(page_id)`** returns a definite state — `NOT_STARTED` / `IN_PROGRESS` / `CLIPPED` / `FAILED`, as a stable first-line token. It reads the page the same way the idempotency check does.
-- 🟡 `clip_article` returns dispatch wording that cannot be mistaken for completion, and instructs the caller to confirm with `clip_status`.
+- ✅ **`clip_status(page_id)`** returns a definite state — `NOT_STARTED` / `IN_PROGRESS` / `CLIPPED` / `FAILED`, as a stable first-line token. It reads the page the same way the idempotency check does.
+- ✅ `clip_article` returns dispatch wording that cannot be mistaken for completion, and instructs the caller to confirm with `clip_status`.
 
 This turns "did it work" into something the session can *check* rather than *infer from prose*, which is a better guarantee than any wording discipline.
-- 🟡 Ported `runClip` behind the MCP entry point. The pipeline itself is unchanged.
-- 🟡 `TOOL-BRIEF.md` written as the single caller-facing reference: the two tools, the full parameter contract, the status tokens, the rules that keep a caller from reporting a clip that never happened, and a troubleshooting table. Mirrored into a Notion page the calling session can read.
+- ✅ Ported `runClip` behind the MCP entry point. The pipeline itself is unchanged.
+- ✅ `TOOL-BRIEF.md` written as the single caller-facing reference: the two tools, the full parameter contract, the status tokens, the rules that keep a caller from reporting a clip that never happened, and a troubleshooting table. Mirrored into a Notion page the calling session can read.
 
 **Done when:** an article is clipped end to end from a claude.ai chat session, with the browser extension uninstalled. **Met 2026-08-14** — Noahpinion long-form, three images stored in Notion with fresh file objects, section headings and footnotes intact, article present exactly once after a forced re-clip, images confirmed rendering.
 
@@ -102,23 +102,25 @@ This turns "did it work" into something the session can *check* rather than *inf
 
 ---
 
-## M2 — Clip twenty real articles ⬜
+## M2 — Clip twenty real articles ✅
 
 The actual test plan. Nothing here is speculative work — it's finding out what breaks.
 
-- 🟡 Write the calling snippet for the Claude project prompt. **Superseded — the caller reaches the service over MCP, not HTTP. See M3.**
-- 🟡 Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
-- 🟡 Deploy
+> **Closed 2026-08-16 with one case deliberately still open.** Everything below shipped and is in daily use, but the retry-after-partial-append case at the bottom was never exercised — it cannot be produced by clipping, only by injecting a fault. Marking the milestone complete does not mark that ⬜ complete. It is the single most important failure mode in the project and it remains unproven.
+
+- ✅ Write the calling snippet for the Claude project prompt. **Superseded — the caller reaches the service over MCP, not HTTP. See M3.**
+- ✅ Rotate `CLIP_SHARED_SECRET` for production and set env vars in Netlify
+- ✅ Deploy
 
 ### Verified against live Notion (2026-08-12)
 
 Three real clips, from a terminal. All four of the testable must-be-right items now hold in production, not just against fixtures:
 
-- 🟡 **Images stored in Notion** — NASA Hubble Science, 6/6 images imported and serving from `prod-files-secure.s3.us-west-2.amazonaws.com`, zero degraded to hotlinks. Captions preserved. This is the one the project exists for.
-- 🟡 **Tables** — MDN `Cache-Control`, 2 tables converted to genuine Notion `table` blocks (not the HTML fallback), header rows detected, inline code preserved inside cells, empty cells intact. 30 code blocks, 34/34 headings, no content loss.
-- 🟡 **Fail visibly** — a paywalled NYT URL produced a red ⚠️ callout with the plain-language message and no partial content. Correctly classified `BLOCKED` at fetch (HTTP 403) rather than clipped as a stub.
-- 🟡 **No duplication on retry** — an identical re-POST of a completed clip returned `202` and wrote nothing; the page still holds exactly one header, one article, six images.
-- 🟡 Status callout lifecycle — appears on first write, deleted on success, updated in place to the error on failure.
+- ✅ **Images stored in Notion** — NASA Hubble Science, 6/6 images imported and serving from `prod-files-secure.s3.us-west-2.amazonaws.com`, zero degraded to hotlinks. Captions preserved. This is the one the project exists for.
+- ✅ **Tables** — MDN `Cache-Control`, 2 tables converted to genuine Notion `table` blocks (not the HTML fallback), header rows detected, inline code preserved inside cells, empty cells intact. 30 code blocks, 34/34 headings, no content loss.
+- ✅ **Fail visibly** — a paywalled NYT URL produced a red ⚠️ callout with the plain-language message and no partial content. Correctly classified `BLOCKED` at fetch (HTTP 403) rather than clipped as a stub.
+- ✅ **No duplication on retry** — an identical re-POST of a completed clip returned `202` and wrote nothing; the page still holds exactly one header, one article, six images.
+- ✅ Status callout lifecycle — appears on first write, deleted on success, updated in place to the error on failure.
 
 ### Still untested: the dangerous idempotency case ⬜
 
@@ -277,7 +279,13 @@ Seven tests, including the two that keep the fix honest: an icon inside a senten
 
 Discovered work goes here rather than getting fixed in place.
 
-**🟡 `clip_status` reported `IN_PROGRESS` forever on any page the Web Clipper filled. Fixed — awaiting review (2026-08-16).**
+**⬜ `loudersound.com` refuses everything, not just us — uninvestigated (found 2026-08-16).**
+
+Failed the same day as `ecuad.ca` and reported through the same `BLOCKED` path (`clp_id5huito`, HTTP 403), but it is **not** the same problem. `ecuad.ca` refuses Node while serving the article to curl; `loudersound.com` 403s curl too, from a residential IP with a browser User-Agent. That is a harder wall, and the cause was never established.
+
+Worth knowing before spending time on it: the fix that helped `ecuad.ca` was a *message* fix, not an access fix, and this site already gets the same corrected wording. So there is no user-facing defect outstanding here — only an unanswered question about whether the site is reachable at all. Left alone deliberately until a real clip needs it.
+
+**✅ `clip_status` reported `IN_PROGRESS` forever on any page the Web Clipper filled. Fixed and approved (2026-08-16).**
 
 Fixed in two steps. First the orphan branch was given a timestamp — the newest block, standing in for the marker it lacks — so the caller's fifteen-minute rule had something to apply to. Then the state itself was corrected: a new `foreign_content` state and a `STATUS: FOREIGN_CONTENT` token, meaning "there is content here and none of it is mine", which is the only claim the block list supports. ⚠️ **The Notion guide and the caller's system prompt both need the new token.**
 
@@ -294,7 +302,7 @@ Not a trivial fix, which is why it is recorded rather than patched. The branch e
 
 Note the caller handled it correctly — it stopped, refused to fire `clip_article` at a page reporting a live run, and asked. The instinct was right even though the diagnosis it offered was wrong.
 
-**🟡 A 403 was reported to the user as a paywall. Message split — awaiting review (2026-08-16).**
+**✅ A 403 was reported to the user as a paywall. Message split, approved (2026-08-16).**
 
 `ecuad.ca` failed a clip (`clp_km0rcf25`) with *"Paywall or bot-block detected — this article can't be fetched without a login."* The article is free and open. So is the site.
 
