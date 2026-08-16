@@ -277,7 +277,12 @@ Seven tests, including the two that keep the fix honest: an icon inside a senten
 
 Discovered work goes here rather than getting fixed in place.
 
-**⬜ `clip_status` reports `IN_PROGRESS` forever on any page the Web Clipper filled (found 2026-08-16).**
+**🟡 `clip_status` reported `IN_PROGRESS` forever on any page the Web Clipper filled. Fixed — awaiting review (2026-08-16).**
+
+Fixed in two steps. First the orphan branch was given a timestamp — the newest block, standing in for the marker it lacks — so the caller's fifteen-minute rule had something to apply to. Then the state itself was corrected: a new `foreign_content` state and a `STATUS: FOREIGN_CONTENT` token, meaning "there is content here and none of it is mine", which is the only claim the block list supports. ⚠️ **The Notion guide and the caller's system prompt both need the new token.**
+
+Original report:
+
 
 Discovered immediately after the fix below, on the very page that prompted it. The clip failed, Wil fell back to the Notion Web Clipper as instructed, and the page then reported `IN_PROGRESS` to ten consecutive `clip_status` calls — including the first, before `clip_article` had been called at all.
 

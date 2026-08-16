@@ -16,7 +16,16 @@ import {
 
 // --- Status ----------------------------------------------------------------
 
-export type ClipState = "not_started" | "in_progress" | "clipped" | "failed";
+/**
+ * `foreign_content` is the honest answer to a page holding content none of
+ * which is ours: a Web Clipper save, pasted notes, a half-deleted clip. The
+ * service cannot tell which, and both of the confident answers are wrong in a
+ * costly direction — `not_started` invites a non-force clip that appends a
+ * second copy, `in_progress` tells the caller to poll something that will never
+ * move. Saying "there is content here and none of it is mine" is the only claim
+ * the block list actually supports.
+ */
+export type ClipState = "not_started" | "in_progress" | "clipped" | "failed" | "foreign_content";
 
 export interface ClipStatus {
   state: ClipState;
@@ -142,14 +151,19 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
    * half-deleted article is many. And since a forced re-clip now writes its
    * progress callout before deleting anything, that case is marked anyway —
    * this is the second line of defence, not the only one.
+   *
+   * What it reports is `foreign_content` rather than a guess at which of those
+   * it is. It once returned `in_progress`, which was wrong for the commonest
+   * cause by far: a Web Clipper save, made on our own advice after a BLOCKED
+   * failure, poisoning the status of every page that took the fallback.
    */
   const substantive = children.filter(
     (block) => block.type !== "divider" && blockPlainText(block).trim().length > 0,
   );
   if (substantive.length >= TUNABLES.orphanContentThreshold) {
     return {
-      state: "in_progress",
-      detail: `Page holds ${substantive.length} blocks but no clip header — a clip is probably mid-write.`,
+      state: "foreign_content",
+      detail: `Page holds ${substantive.length} blocks, none of them written by this service.`,
       /**
        * The newest block, standing in for the marker this branch does not have.
        *

@@ -400,6 +400,29 @@ function statusResponse(
         true,
       );
 
+    case "foreign_content":
+      // Deliberately worded so an un-updated caller still does the safe thing.
+      // A new token reaches system prompts that have never heard of it, and
+      // rule 3 applies: only this prose arrives at the model, so the prose has
+      // to carry the instruction rather than relying on the token being known.
+      return toolText(
+        id,
+        `STATUS: FOREIGN_CONTENT\n\n` +
+          `NOTHING CLIPPED BY THIS SERVICE — but the page is not empty. It holds content ` +
+          `that this service did not write.\n` +
+          `Last change: ${written ?? "(time not reported by Notion)"}\n\n` +
+          `${status.detail ?? ""}\n\n` +
+          `Nothing is running. Do NOT poll this — calling clip_status again will return the ` +
+          `same answer forever.\n\n` +
+          `Most often this is a Notion Web Clipper save, made after this service failed on ` +
+          `that article, or notes the user wrote. It can also be a clip this service was ` +
+          `part-way through deleting.\n\n` +
+          `Do NOT call clip_article on this page without asking the user first. A plain clip ` +
+          `would append a second copy of the article below what is already there, and ` +
+          `force: true would delete the existing content. Tell the user what is on the page ` +
+          `and let them choose.`,
+      );
+
     case "not_started":
     default:
       return toolText(
