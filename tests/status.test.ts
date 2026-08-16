@@ -87,7 +87,7 @@ test("a half-deleted article with no markers is NOT reported as not_started", ()
   const status = deriveClipStatus(remnants);
 
   assert.notEqual(status.state, "not_started", "article content must never read as empty");
-  assert.equal(status.state, "in_progress");
+  assert.equal(status.state, "foreign_content");
 });
 
 test("unattributed content is dated, so the caller can time it out", () => {
@@ -111,7 +111,7 @@ test("unattributed content is dated, so the caller can time it out", () => {
 
   const status = deriveClipStatus(blocks);
 
-  assert.equal(status.state, "in_progress");
+  assert.equal(status.state, "foreign_content");
   assert.equal(status.markerCreatedAt, "2026-08-16T18:47:00.000Z", "the newest block, not the oldest");
 });
 
@@ -131,7 +131,7 @@ test("unattributed content with no timestamps still reports a state", () => {
 
   const status = deriveClipStatus(blocks);
 
-  assert.equal(status.state, "in_progress");
+  assert.equal(status.state, "foreign_content");
   assert.equal(status.markerCreatedAt, undefined);
 });
 

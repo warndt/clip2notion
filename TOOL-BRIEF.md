@@ -112,11 +112,16 @@ The **first line** of every response is a stable token. Match on that, not on th
 | `STATUS: CLIPPED` | Confirmed on the page. | Safe to report success |
 | `STATUS: FAILED` | Error callout on the page, with a reason. | Relay the reason verbatim |
 | `STATUS: NOT_STARTED` | Page is empty. | Must not report success |
+| `STATUS: FOREIGN_CONTENT` | Page holds content, none of it written by this service. Nothing is running. | Must not report success. Do not poll. Ask the user before clipping |
 | `STATUS: REJECTED` | The request was refused before anything was written — bad page id, bad URL, page outside Resources, or Notion unreachable. | Relay the reason. Nothing reached the page, so there is no error callout to read. |
 
 Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive. This is why every failure leads with an unmistakable phrase rather than relying on a flag.
 
-**`CLIPPED` and `IN_PROGRESS` carry a time.** `Clip written:` on a `CLIPPED` result is when that clip's header was created; `Run started:` on `IN_PROGRESS` is when the running clip planted its marker. Both read absolutely and relatively — `2026-08-15 00:31 UTC (2 minutes ago)`.
+**`CLIPPED`, `IN_PROGRESS` and `FOREIGN_CONTENT` carry a time.** `Clip written:` on a `CLIPPED` result is when that clip's header was created; `Run started:` on `IN_PROGRESS` is when the running clip planted its marker; `Last change:` on `FOREIGN_CONTENT` is the newest block on the page. All read absolutely and relatively — `2026-08-15 00:31 UTC (2 minutes ago)`.
+
+**`FOREIGN_CONTENT` is not a failure and not a run.** It means the page has content and none of it carries this service's markers — most often a Web Clipper save made after this service failed on that article, sometimes the user's own notes, occasionally a clip caught part-way through deletion. The service cannot tell which, and says so rather than guessing.
+
+Nothing is running, so **polling it is pointless** — it returns the same answer indefinitely. And **`clip_article` must not be called on such a page without asking the user**: a plain clip appends a second copy of the article below what is already there, and `force: true` deletes the existing content. Describe what is on the page and let the user choose.
 
 This matters in exactly one situation, and it is the situation that has caused the most confusion: **on a re-clip, `CLIPPED` alone proves nothing.** The token says the same thing whether the re-run finished or the previous clip is sitting untouched. Check the written time before reporting a re-clip as done — a stale timestamp means the re-run has not landed and the article on the page is the old one. Notion records that time to the minute, so two runs inside one minute cannot be told apart this way.
 
@@ -136,6 +141,7 @@ The work is dispatched *before* the reply is sent. If the tool call times out or
 
 - `NOT_STARTED` → nothing was written, so calling `clip_article` again is safe. No `force` — there is nothing to replace.
 - `IN_PROGRESS` → it is running. Keep calling `clip_status`.
+- `FOREIGN_CONTENT` → the page has content that is not ours and nothing is running. Do **not** call `clip_article` to recover; ask the user what the content is first.
 - `CLIPPED` → it worked despite the error. Report success.
 
 Retrying `clip_article` *without* that check is how a page ends up with the article on it twice. The first call after a quiet spell is the one most likely to error this way, and recovering through `clip_status` is expected rather than exceptional.
@@ -188,6 +194,7 @@ Two related failures are worth knowing about, because both were real:
 | `STATUS: FAILED`, "refused this request" or "bot-check page" | The site's bot protection turned the fetch away. **Not a paywall** — the message says so | Tell the user to use the Web Clipper. Do not suggest logging in or subscribing |
 | `STATUS: FAILED`, other reason | Page carries an error callout; any content on it is partial | Relay verbatim; recovery is a `force` re-clip |
 | `STATUS: NOT_STARTED` | Page genuinely empty — never called, or rejected before writing | Do not report success. A fresh clip is safe here. |
+| `STATUS: FOREIGN_CONTENT` | Page has content this service did not write — usually a Web Clipper save after a failed clip. Nothing is running | Do not poll; it will not change. Do not clip without asking — plain appends a duplicate, `force` deletes what is there |
 | "That page can't be read…" | Wrong page id, page outside Resources, or page deleted/in trash | Check the id. Retrying will not help. |
 | Tools missing from the session entirely | Connector cached or not enabled for that conversation | Check the per-conversation connector toggle; if that fails, disconnect and reconnect the connector |
 | `STATUS: CLIPPED` but images look broken | Import may have degraded to external references | Relay the user's report rather than insisting it worked — `CLIPPED` confirms the article was written, not every image |
