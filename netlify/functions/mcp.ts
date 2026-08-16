@@ -354,6 +354,16 @@ function statusResponse(
   // says the same thing either way.
   const written = describeClipTime(status.markerCreatedAt);
 
+  // An error callout an earlier run left behind, which a later clip superseded.
+  // Reported rather than deleted: the service removes nothing on its own
+  // initiative, so the page keeps it until a person does something about it.
+  const stale = status.staleError
+    ? `\n\n⚠️ NOTE — there is an older error callout still on this page, left by an ` +
+      `earlier run. It does NOT describe this clip:\n"${status.staleError}"\nThe clip above ` +
+      `it is real and finished. Tell the user the callout is stale and can be deleted; do ` +
+      `not relay it as a failure.`
+    : "";
+
   switch (status.state) {
     case "clipped":
       // Says only what was actually checked. An earlier version asserted the
@@ -370,7 +380,8 @@ function statusResponse(
           `broken image, relay that rather than insisting it worked.\n\n` +
           `If you asked for a re-clip, check the written time before reporting it as done: ` +
           `an old timestamp means you are looking at the previous clip and the re-run has ` +
-          `not landed. Notion records that time to the minute.`,
+          `not landed. Notion records that time to the minute.` +
+          stale,
       );
 
     case "in_progress":
@@ -392,7 +403,11 @@ function statusResponse(
         id,
         `STATUS: FAILED\n\n` +
           `CLIP FAILED — the page carries an error. Relay this to the user:\n\n` +
-          `${status.detail ?? "(no detail recorded)"}\n\n` +
+          `${status.detail ?? "(no detail recorded)"}\n` +
+          `Error written: ${written ?? "(time not reported by Notion)"}\n\n` +
+          `Check that time before you act on this. If it is older than the clip you just ` +
+          `asked for, you are reading an error from an EARLIER run that is still sitting on ` +
+          `the page, and it says nothing about yours.\n\n` +
           `Any content already on the page is partial. Do not retry on your own initiative. ` +
           `If the message says a retry may help, tell the user that and let them decide.\n\n` +
           `This error stays on the page until someone removes it, so it will not decay into ` +

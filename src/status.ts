@@ -46,6 +46,55 @@ export interface ClipStatus {
    * this is a report, never a decision input.
    */
   markerCreatedAt?: string;
+  /**
+   * Which run wrote the marker that decided this state.
+   *
+   * Both callouts embed their `clip_id`, so the page already records whose
+   * verdict it is carrying — nothing read it back, so nothing could tell a
+   * fresh failure from one left lying there by an earlier run. `awaitOwnRun`
+   * needs exactly that distinction: it guards which run *started*, and without
+   * this it would still hand back a verdict belonging to someone else.
+   */
+  markerClipId?: string;
+  /**
+   * An error callout from an earlier run that a later clip has superseded.
+   *
+   * Set only alongside `clipped`. The callout is left on the page — deleting
+   * content on the service's own initiative is the thing `force` exists to
+   * confine — so the caller is told it is there and that it describes a
+   * different run.
+   */
+  staleError?: string;
+}
+
+/** Both callouts carry `(clp_xxxxxxxx)`; this reads it back out. */
+function clipIdIn(text: string): string | undefined {
+  return /\bclp_[0-9a-z]+\b/.exec(text)?.[0];
+}
+
+/**
+ * The most recently created block matching `predicate`.
+ *
+ * `find` returns the first, which is the wrong end of the page: our writes are
+ * appends, so a leftover callout from an earlier run sits *above* the one this
+ * run just wrote. Picking the first would report an old verdict in preference
+ * to the current one. Ties fall to document order, where later still wins.
+ */
+function newestMatch(
+  blocks: NotionBlockRecord[],
+  predicate: (block: NotionBlockRecord) => boolean,
+): NotionBlockRecord | undefined {
+  let best: NotionBlockRecord | undefined;
+  let bestAt: string | undefined;
+  for (const block of blocks) {
+    if (!predicate(block)) continue;
+    const at = createdTime(block);
+    if (best === undefined || bestAt === undefined || (at !== undefined && at >= bestAt)) {
+      best = block;
+      bestAt = at;
+    }
+  }
+  return best;
 }
 
 /** Notion stamps `created_time` on every block; absent or odd values just don't report. */
@@ -103,23 +152,10 @@ export function describeClipTime(iso: string | undefined, now: number = Date.now
 export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
   // Named `failure` rather than `errorCallout` — that name is already the
   // imported block builder, and shadowing it here would be a trap.
-  const failure = children.find(
+  const failure = newestMatch(
+    children,
     (block) => block.type === "callout" && blockPlainText(block).includes(ERROR_MARKER),
   );
-  if (failure) {
-    return { state: "failed", detail: blockPlainText(failure) };
-  }
-
-  const running = children.find(
-    (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
-  );
-  if (running) {
-    return {
-      state: "in_progress",
-      detail: blockPlainText(running),
-      markerCreatedAt: createdTime(running),
-    };
-  }
 
   const header = children.find(
     (block) =>
@@ -127,12 +163,59 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
       blockPlainText(block).startsWith(HEADER_PREFIX) &&
       blockFirstLink(block) !== null,
   );
+
+  /**
+   * An error callout outranks everything — unless a clip finished *after* it.
+   *
+   * The rank exists because a run that dies partway leaves both partial content
+   * and an error, and that is a failure, not a success with decoration. Since
+   * the error is written last in that sequence, the run's own error is always
+   * at least as new as its header, and the rank holds.
+   *
+   * What the rank could not survive was an error from a *different*, earlier
+   * run. Only `force` sweeps callouts, so a failed clip followed by an ordinary
+   * clip of another URL left both on the page — and the page then reported
+   * FAILED for good, quoting the wrong site, while holding a complete article.
+   * A caller obeying "never retry after FAILED" relays that to the user, who
+   * reaches for the Web Clipper and appends a duplicate.
+   *
+   * Strictly newer, and both timestamps required: Notion records creation to
+   * the minute, so a partial write and its error frequently share one. A tie
+   * has to read as failure — never claim success on an ambiguous page.
+   */
+  const failedAt = failure ? createdTime(failure) : undefined;
+  const headerAt = header ? createdTime(header) : undefined;
+  const superseded = Boolean(failedAt && headerAt && headerAt > failedAt);
+
+  if (failure && !superseded) {
+    return {
+      state: "failed",
+      detail: blockPlainText(failure),
+      markerCreatedAt: failedAt,
+      markerClipId: clipIdIn(blockPlainText(failure)),
+    };
+  }
+
+  const running = newestMatch(
+    children,
+    (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
+  );
+  if (running) {
+    return {
+      state: "in_progress",
+      detail: blockPlainText(running),
+      markerCreatedAt: createdTime(running),
+      markerClipId: clipIdIn(blockPlainText(running)),
+    };
+  }
+
   if (header) {
     return {
       state: "clipped",
       detail: blockPlainText(header),
       sourceUrl: blockFirstLink(header) ?? undefined,
-      markerCreatedAt: createdTime(header),
+      markerCreatedAt: headerAt,
+      staleError: superseded && failure ? blockPlainText(failure) : undefined,
     };
   }
 
@@ -287,7 +370,16 @@ export async function awaitOwnRun(
 
     if (started) {
       const status = deriveClipStatus(children);
-      if (status.state !== "in_progress") return status;
+      // A failure some other run wrote is not our outcome. Our own marker being
+      // present says this run started, not that this error belongs to it — and
+      // an error callout an earlier run left behind sits on the page until
+      // someone removes it. Keep waiting for a verdict that is actually ours.
+      const borrowedFailure =
+        status.state === "failed" &&
+        status.markerClipId !== undefined &&
+        status.markerClipId !== clipId;
+
+      if (status.state !== "in_progress" && !borrowedFailure) return status;
     }
 
     await new Promise((resolve) => setTimeout(resolve, TUNABLES.statusPollIntervalMs));
