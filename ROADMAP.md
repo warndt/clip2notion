@@ -277,6 +277,18 @@ Seven tests, including the two that keep the fix honest: an icon inside a senten
 
 Discovered work goes here rather than getting fixed in place.
 
+**⬜ `clip_status` reports `IN_PROGRESS` forever on any page the Web Clipper filled (found 2026-08-16).**
+
+Discovered immediately after the fix below, on the very page that prompted it. The clip failed, Wil fell back to the Notion Web Clipper as instructed, and the page then reported `IN_PROGRESS` to ten consecutive `clip_status` calls — including the first, before `clip_article` had been called at all.
+
+Nothing was running. There is no marker on that page: no progress callout, no error callout, no `Source:` header. `deriveClipStatus` falls through to the orphan-content branch (`status.ts:136`), sees ~30 substantive blocks against `orphanContentThreshold` of 5, and concludes a clip is mid-write. `markerCreatedAt` is absent because there is no marker to date, so the caller loses the fifteen-minute bound too and cannot even declare it dead.
+
+**The bad part is which path triggers it.** The Web Clipper is the *documented fallback* for `BLOCKED` failures — so the recovery we tell users to perform is precisely what poisons the status endpoint afterwards. Every fallback page becomes permanently unreadable to the caller.
+
+Not a trivial fix, which is why it is recorded rather than patched. The branch exists to stop `NOT_STARTED` being reported for a page holding a half-written clip, because that sends the caller to a non-`force` clip and appends a second copy. Returning `not_started` here would be correct for a Web Clipper page and dangerous for a half-deleted one, and the block list alone does not distinguish them. Options worth weighing: look for the Web Clipper's own signature, require a clip2notion marker before claiming `in_progress` now that the progress callout is always written first, or report a distinct fourth state meaning "content present, none of it ours".
+
+Note the caller handled it correctly — it stopped, refused to fire `clip_article` at a page reporting a live run, and asked. The instinct was right even though the diagnosis it offered was wrong.
+
 **🟡 A 403 was reported to the user as a paywall. Message split — awaiting review (2026-08-16).**
 
 `ecuad.ca` failed a clip (`clp_km0rcf25`) with *"Paywall or bot-block detected — this article can't be fetched without a login."* The article is free and open. So is the site.
