@@ -1,33 +1,33 @@
 # Contributing
 
-Short version: **suggestions yes, pull requests no, forks encouraged.**
+In summary: **suggestions yes, pull requests no, forks yes.**
 
-## Pull requests are not accepted
+## The project does not accept pull requests
 
-Not because contributions aren't valued — because of what this repository is. It is a personal tool that runs one person's workflow, published in case the approach is useful to someone else. It has one user, one deployment, and a set of constraints in [CLAUDE.md](CLAUDE.md) that mostly exist because something failed silently in production and cost an afternoon to find.
+This is not a statement about the value of contributions. It is a result of what this repository is. It is a personal tool that operates one person's workflow. It is public because the method can be useful to other persons. It has one user, one installation, and a set of limits in [CLAUDE.md](CLAUDE.md). Most of those limits exist because something failed in production with no visible sign, and a person used many hours to find the cause.
 
-Merging changes I can't exercise against that workflow would mean either sitting on them or shipping them untested. Both are worse than saying no clearly up front.
+I cannot test a change against that workflow. Therefore I must either keep the change and not merge it, or merge it with no test. To say no clearly at the start is better than both of these.
 
-If you send a PR anyway, it will be closed with a pointer to this file. That isn't a judgement on the code.
+If you send a pull request, I will close it and give a link to this file. This is not a statement about the quality of your code.
 
-## What is welcome
+## What the project accepts
 
-**Open an issue.** Genuinely useful, and the most likely thing to change the code:
+**Write an issue.** This is useful, and it is the most probable method to change the code.
 
-- **A site that clips badly.** The most valuable report there is. Include the URL and what went wrong — a missing section, a mangled table, an image that came through as a 1×1 spacer. Nearly every fix in `ROADMAP.md`'s backlog started as one real article that broke something, and every one of them became a test case.
-- **A bug with a reproduction.** What you called, what happened, what you expected.
-- **A security finding.** Not as a public issue — see [SECURITY.md](SECURITY.md).
-- **A question about adapting it.** If the README didn't cover it, that's a README bug and worth reporting as one.
+- **A website that clips incorrectly.** This is the most valuable report. Give the URL and describe the problem: a section that is not present, a table that is not correct, or an image that arrived as a 1×1 spacer. Almost each correction in the backlog of `ROADMAP.md` started with one real article that caused a failure, and each one became a test.
+- **A bug, with the steps to cause it.** Give the call that you made, the result, and the result that you expected.
+- **A security problem.** Do not write a public issue. Refer to [SECURITY.md](SECURITY.md).
+- **A question about how to change the service for your use.** If the README does not answer your question, that is a defect in the README. Report it as one.
 
-**Fork it.** This is the encouraged path, and the licence is MIT precisely so you don't have to ask. If your setup differs from mine — a different platform, a different database, no Claude at all — a fork will serve you better than a configuration flag I'd have to maintain and can't test. The [Adapting it](README.md#adapting-it) section is written for exactly that.
+**Make a fork.** This is the recommended method. The licence is MIT, so you do not need permission. If your installation is different from mine (a different platform, a different database, or no Claude), a fork operates better than a configuration option that I must maintain and cannot test. The [Adapting it](README.md#how-to-change-the-service-for-your-use) section of the README is for this purpose.
 
-If you build something interesting on top of it, I'd like to hear about it. That's an issue too.
+If you build something interesting with this code, I would like to know. Write an issue.
 
-## If you're reading the code
+## If you read the code
 
-Two things that will save you time:
+Two facts will save you time.
 
-1. **Read [CLAUDE.md](CLAUDE.md) first.** It documents the constraints that fail *late and silently* rather than in testing — the 10-second synchronous ceiling, why jsdom must stay out of the light half of `src/`, Notion's 2,000-character rich-text cap, and why a background function must almost never throw. Several of those look like arbitrary awkwardness until you know what they're avoiding.
-2. **`ROADMAP.md`'s backlog is a failure log, not a wishlist.** Each entry records what broke, what the root cause turned out to be, and — often — which plausible-sounding fix was wrong and why. If you're about to change something and there's an entry about it, read that first.
+1. **Read [CLAUDE.md](CLAUDE.md) first.** It lists the limits that cause a failure in production and not in a test: the 10-second limit for a synchronous function, the rule that keeps jsdom out of the light half of `src/`, the Notion limit of 2,000 characters for each rich-text object, and the rule that a background function must almost never throw an error. Some of these look unnecessary until you know what they prevent.
+2. **The Backlog in `ROADMAP.md` is a list of failures and not a list of ideas.** Each entry gives what failed, the cause, and frequently a correction that looks correct but is not. If you are going to change something and there is an entry about it, read the entry first.
 
-The tests cover the failure modes that are invisible from the service's side: content that duplicates on retry, text truncated at a limit, an image that degrades to a hotlink, a status endpoint that reports a clip which never happened. Those are the ones worth keeping green.
+The tests cover the failures that the service cannot see: content that the service writes two times, text that a limit removes, an image that becomes an external link, and a status function that reports a clip that did not occur. Keep those tests correct.

@@ -1,74 +1,74 @@
 # clip2notion — tool reference
 
-**Last updated: 2026-08-15.** Describes the connector as deployed on that date. If the tool changes, this is the document to change with it. The Notion mirror was re-synced on the 15th.
+**Last change: 2026-08-16.** This document describes the connector on that date. If the tool changes, change this document also.
 
-Covers only the clipping tool — not the Resources database, Areas, Tags, or the rest of the workflow.
+This document covers only the clipping tool. It does not cover the Resources database, Areas, Tags, or the other parts of the workflow.
 
 ## How to use this document
 
-It has three audiences.
+There are three groups of readers.
 
-**Using it day to day.** Section 0 is the whole of it. The rest is detail you only need when something misbehaves.
+**A person who uses the tool each day.** Read section 0. The other sections give detail that you need only when there is a problem.
 
-**A Claude session doing the clipping.** Read this when something goes wrong, or when you need a detail the system prompt doesn't carry — a parameter, a status value, a symptom you don't recognise. Sections 2, 3, 5, 6 and 8 are for you.
+**A Claude session that makes the clips.** Read this document when there is a problem, or when you need a detail that the system prompt does not contain: a parameter, a status value, or a symptom that you do not know. Sections 2, 3, 5, 6, and 8 are for you.
 
-**Whoever writes or revises the system prompt.** Sections 1 and 4 are the substance. Section 7 is setup and belongs to whoever configures the connector, not to the caller.
+**A person who writes or changes the system prompt.** Sections 1 and 4 are the important parts. Section 7 is for the person who configures the connector and not for the caller.
 
-**Section 4 is deliberately duplicated in the system prompt itself.** Those five rules are load-bearing: each one, if got wrong, produces a confidently reported clip that never happened, or an article on the page twice. They must not depend on this document being fetched, reachable, or current. If you are revising the prompt and thinking of replacing them with a pointer here — don't. Reference material is for recovering from problems, not for preventing them.
-
----
-
-## 0. Using it
-
-Open the Claude project that handles Resources, give it the article's URL, and ask for it to be saved. Claude creates the page, sets the properties, and calls the clipper for the body. Nothing else is required of you — in particular, **you never need to say "check again"**; if a clip is still running, Claude waits for it.
-
-### What a good clip looks like
-
-Open the page. It should have, in order:
-
-1. A **`Source:`** line — article title as a link, then publication, author and date
-2. The article itself, headings and all
-3. A **Footnotes** section at the end, if the original had footnotes
-
-Then check the images actually render. That is the one thing no tool can verify — Claude can confirm an image is stored in Notion, but not that it displays. If images are broken, say so; don't assume a reported success means they're fine.
-
-### When it goes wrong
-
-- **A ⚠️ error callout on the page** — read it. It says what happened in plain language and whether trying again would help.
-- **Article there but wrong** (missing sections, mangled tables) — ask Claude to re-clip it with force. That deletes the existing clip and rebuilds it.
-- **A ⏳ callout still there after several minutes** — the run died. Ask for a force re-clip.
-- **Paywalled or login-walled** — the service can't log in to anything, by design. Use the Notion Web Clipper browser extension for those. Same for pages rendered entirely in JavaScript.
-- **The site refused the request** — some sites run bot protection that turns away any server-side fetch, even when the article is free and open in your browser. The error says so explicitly, and says that no login will help. The Web Clipper runs inside your browser, so it is unaffected.
-
-### One thing to know about `force`
-
-A forced re-clip deletes everything from the `Source:` line to the end of the page. Anything you added **above** it is safe; notes you added **below** the article go with it. Move them up, or copy them out first.
-
-### When something is properly broken
-
-First, **check what is running**: `https://<your-site>.netlify.app/.netlify/functions/health` answers with the deployed commit, whether each required secret is present, and the current settings. It never echoes a secret's value. A `503` there means the service is misconfigured and no clip will work until it is fixed.
-
-Then Netlify → the clip2notion site → **Function logs**. Every run is tagged with a `clip_id`. `image_degraded` and `image_import_failed` mark images that fell back to hotlinks — a cluster of those means something systematic about that site rather than a one-off.
-
-⚠️ **The logs drop entries.** A request that provably ran and returned has been observed missing from them entirely. Treat a missing log line as "no information", never as proof that something didn't happen.
+**Section 4 is also in the system prompt, on purpose.** Those five rules are necessary. If the caller applies one of them incorrectly, the result is a clip that the caller reports but that did not occur, or an article that is on the page two times. The rules must not depend on this document. If you change the prompt, do not replace the rules with a link to this document. Reference material corrects a problem. It does not prevent a problem.
 
 ---
 
-## 1. What it is
+## 0. How to use the tool
 
-An MCP connector called **clip2notion**. It writes a web article's full content into a Notion page that already exists, storing the article's images inside Notion rather than hotlinking them, so the clip survives the source site changing or disappearing.
+Open the Claude project for Resources. Give it the URL of the article and ask it to save the article. Claude creates the page, sets the properties, and calls the clipper for the body. You do nothing more. In particular, **you never need to say "check again"**. If a clip continues to operate, Claude waits for it.
+
+### What a correct clip looks like
+
+Open the page. It has these parts, in this order:
+
+1. A **`Source:`** line: the title of the article as a link, then the publication, the author, and the date
+2. The article, with its headings
+3. A **Footnotes** section at the end, if the original article has footnotes
+
+Then look at the images. No tool can confirm that an image shows correctly. Claude can confirm that an image is in Notion, but not that the image shows. If an image does not show, report it. Do not assume that a reported success means that each image is correct.
+
+### If there is a problem
+
+- **A ⚠️ error callout on the page.** Read it. It says what occurred, in simple language, and if a second attempt can help.
+- **The article is present but is not correct** (sections are missing, or a table is not correct). Ask Claude to clip the article again with `force`. This deletes the clip that exists and makes it again.
+- **A ⏳ callout is still present after some minutes.** The run stopped. Ask for a clip with `force`.
+- **A paywall or a login wall.** The service cannot log in to a website. This is by design. Use the Notion Web Clipper browser extension. Use it also for a page that needs JavaScript to show its content.
+- **The website refused the request.** Some websites have bot protection that refuses each request from a server, although the article is free and open in your browser. The error message says this. It also says that a login does not help. The Web Clipper operates in your browser, so the bot protection does not affect it.
+
+### One fact about `force`
+
+A clip with `force` deletes each block from the `Source:` line to the end of the page. Content **above** that line is safe. A note that you added **below** the article is deleted with the clip. Move the note above the `Source:` line, or copy it to a different location first.
+
+### If the service does not operate
+
+First, **find out which version operates**. Send a request to `https://<your-site>.netlify.app/.netlify/functions/health`. It answers with the deployed commit, if each necessary secret is present, and the current settings. It never gives the value of a secret. A `503` means that the configuration is not complete and no clip will operate until a person corrects it.
+
+Then open Netlify, then the clip2notion site, then **Function logs**. Each run has a `clip_id`. The messages `image_degraded` and `image_import_failed` show images that became external links. If there are many of these for one website, the cause is systematic for that website and is not a single event.
+
+⚠️ **The logs lose entries.** A request that certainly operated and returned a response was not in the logs. If a log line is not present, this gives no information. It does not show that an event did not occur.
+
+---
+
+## 1. What the tool is
+
+An MCP connector with the name **clip2notion**. It writes the full content of a web article into a Notion page that already exists. It stores the images of the article in Notion and does not link to them on the source website. Therefore the clip continues to operate if the source website changes or stops to operate.
 
 It replaces the Notion Web Clipper browser extension for open-web articles.
 
-**It does exactly one thing.** It does not create pages, set properties, choose Areas or Tags, or make any categorisation decision. Those are the caller's job. It only fills in the page body.
+**It does one thing.** It does not create pages, set properties, select Areas or Tags, or make any decision about a category. The caller does these. The tool writes only the body of the page.
 
-The division of labour the system prompt should encode:
+The system prompt must contain this division of work:
 
-1. Caller creates the page in **WDB | Resources** and sets every property.
-2. Caller calls `clip_article` with the page id and the article URL.
-3. Caller confirms with `clip_status` before telling the user anything.
+1. The caller creates the page in **WDB | Resources** and sets each property.
+2. The caller calls `clip_article` with the page id and the URL of the article.
+3. The caller uses `clip_status` to confirm the result before it tells the user anything.
 
-⚠️ **On step 1, mind the templates.** Resources templates now preset properties of their own, and a property passed alongside `template_id` **overrides rather than merges**. A caller setting properties explicitly can silently wipe a preset Area. This is not a clipper concern — it touches no properties — but it belongs in the system prompt, because the symptom is a page that looks correctly filed and isn't.
+⚠️ **In step 1, be careful with the templates.** The Resources templates now set properties. A property that the caller sends with `template_id` **replaces the template value and does not add to it**. Therefore a caller that sets properties can delete an Area that the template set, with no message. This is not a problem in the clipper, because the clipper changes no properties. But it belongs in the system prompt, because the symptom is a page that looks correct and is not correct.
 
 ---
 
@@ -76,169 +76,169 @@ The division of labour the system prompt should encode:
 
 ### `clip_article(page_id, url, force?)`
 
-| Parameter | Type | Required | Notes |
+| Parameter | Type | Necessary | Description |
 |---|---|---|---|
-| `page_id` | string | yes | Dashed or undashed id, **or a full Notion page URL**. A `?v=` view id in a URL is ignored. |
-| `url` | string | yes | Absolute `http(s)` article URL. |
-| `force` | boolean | no | Only literal `true` counts. Deletes the existing clip first. |
+| `page_id` | string | yes | An id with or without hyphens, **or a full Notion page URL**. The tool ignores a `?v=` view id in a URL. |
+| `url` | string | yes | The absolute `http` or `https` URL of the article. |
+| `force` | boolean | no | Only the value `true` operates. It deletes the clip that exists first. |
 
 ### `clip_status(page_id)`
 
-Takes **the page id — there is no job id**. Status is derived from the page's own blocks, so nothing needs carrying across turns and nothing is lost if the conversation restarts.
+This tool uses **the page id. There is no job id.** The tool reads the state from the blocks of the page. Therefore you do not carry a value between turns, and you lose nothing if the conversation starts again.
 
-Both tools wait a few seconds server-side before answering, so a short article often completes inside a single call.
+Both tools wait some seconds on the server before they answer. Therefore one call is frequently sufficient for a short article.
 
-### What `force: false` actually guards against
+### What `force: false` prevents
 
-The guard is **per-URL, not per-page**:
+The check is **for each URL and not for each page**:
 
-- Page already has a clip of **the same URL** → the run stops and writes nothing. No duplicate. `clip_status` reports `CLIPPED`.
-- Page has other content but no clip of that URL → the article is **appended**. "Has content" is not the same as "already clipped this URL".
+- The page has a clip of **the same URL**. The run stops and writes nothing. There is no duplicate. `clip_status` gives `CLIPPED`.
+- The page has other content but no clip of that URL. The service **adds** the article. "The page has content" is not the same as "the page has a clip of this URL".
 
-### The URL comes only from the argument
+### The URL comes only from the parameter
 
-The service never reads the page's `userDefined:URL` property — it does not touch properties at all, by design. If the argument and the property disagree, the argument wins and the property is left untouched. Keeping them in step is the caller's job.
+The service never reads the `userDefined:URL` property of the page. It does not read or write properties. If the parameter and the property are different, the service uses the parameter and does not change the property. The caller must keep them the same.
 
 ---
 
 ## 3. Status values
 
-The **first line** of every response is a stable token. Match on that, not on the prose after it.
+The **first line** of each response is a fixed value. Use that line and not the text after it.
 
-| Token | Meaning | What the caller may say |
+| Value | Meaning | What the caller can say |
 |---|---|---|
-| `STATUS: STARTED` | Dispatched. Nothing confirmed. | Nothing about success |
-| `STATUS: IN_PROGRESS` | Still running. Outcome unknown. | Nothing about success |
-| `STATUS: CLIPPED` | Confirmed on the page. | Safe to report success |
-| `STATUS: FAILED` | Error callout on the page, with a reason. | Relay the reason verbatim |
-| `STATUS: NOT_STARTED` | Page is empty. | Must not report success |
-| `STATUS: FOREIGN_CONTENT` | Page holds content, none of it written by this service. Nothing is running. | Must not report success. Do not poll. Ask the user before clipping |
-| `STATUS: REJECTED` | The request was refused before anything was written — bad page id, bad URL, page outside Resources, or Notion unreachable. | Relay the reason. Nothing reached the page, so there is no error callout to read. |
+| `STATUS: STARTED` | The work started. Nothing is confirmed. | Nothing about success |
+| `STATUS: IN_PROGRESS` | The run continues. The result is not known. | Nothing about success |
+| `STATUS: CLIPPED` | Confirmed on the page. | You can report success |
+| `STATUS: FAILED` | There is an error callout on the page, with a cause. | Give the cause with no change |
+| `STATUS: NOT_STARTED` | The page is empty. | Do not report success |
+| `STATUS: FOREIGN_CONTENT` | The page has content, and this service wrote none of it. No run operates. | Do not report success. Do not call again. Ask the user before you clip. |
+| `STATUS: REJECTED` | The service refused the request before it wrote anything: an incorrect page id, an incorrect URL, a page outside Resources, or Notion is not available. | Give the cause. Nothing reached the page, so there is no error callout to read. |
 
-Failure responses also set `isError`, but **do not depend on it** — it does not reliably reach the model as a machine-readable field. The leading token and the words are what arrive. This is why every failure leads with an unmistakable phrase rather than relying on a flag.
+A failure response also sets `isError`. **Do not depend on this flag.** It does not always arrive at the model as a field that a machine can read. The first-line value and the words arrive. This is the reason that each failure message starts with a clear phrase and does not depend on a flag.
 
-**`CLIPPED`, `IN_PROGRESS` and `FOREIGN_CONTENT` carry a time.** `Clip written:` on a `CLIPPED` result is when that clip's header was created; `Run started:` on `IN_PROGRESS` is when the running clip planted its marker; `Last change:` on `FOREIGN_CONTENT` is the newest block on the page. All read absolutely and relatively — `2026-08-15 00:31 UTC (2 minutes ago)`.
+**`CLIPPED`, `IN_PROGRESS`, and `FOREIGN_CONTENT` each give a time.** On a `CLIPPED` result, `Clip written:` is the creation time of the header of that clip. On `IN_PROGRESS`, `Run started:` is the time when the run wrote its marker. On `FOREIGN_CONTENT`, `Last change:` is the newest block on the page. Each time is absolute and relative: `2026-08-15 00:31 UTC (2 minutes ago)`.
 
-**`FOREIGN_CONTENT` is not a failure and not a run.** It means the page has content and none of it carries this service's markers — most often a Web Clipper save made after this service failed on that article, sometimes the user's own notes, occasionally a clip caught part-way through deletion. The service cannot tell which, and says so rather than guessing.
+**`FOREIGN_CONTENT` is not a failure and is not a run.** It means that the page has content and that none of the content has a marker from this service. The most frequent cause is a Web Clipper save that a person made after this service failed for that article. Other causes are notes from the user, or a clip that a person deleted partially. The service cannot tell which cause applies, and it says this instead of a guess.
 
-Nothing is running, so **polling it is pointless** — it returns the same answer indefinitely. And **`clip_article` must not be called on such a page without asking the user**: a plain clip appends a second copy of the article below what is already there, and `force: true` deletes the existing content. Describe what is on the page and let the user choose.
+No run operates, therefore **do not call the tool again**. It gives the same answer continuously. Also, **do not call `clip_article` for such a page before you ask the user.** A clip with no `force` adds a second copy of the article below the content that exists. A clip with `force: true` deletes the content that exists. Describe the content of the page and let the user decide.
 
-This matters in exactly one situation, and it is the situation that has caused the most confusion: **on a re-clip, `CLIPPED` alone proves nothing.** The token says the same thing whether the re-run finished or the previous clip is sitting untouched. Check the written time before reporting a re-clip as done — a stale timestamp means the re-run has not landed and the article on the page is the old one. Notion records that time to the minute, so two runs inside one minute cannot be told apart this way.
+This is important in one situation, and that situation causes the most confusion. **After a clip with `force`, `CLIPPED` alone shows nothing.** The value is the same if the new run is complete and if the previous clip is unchanged. Read the written time before you report that a clip with `force` is complete. An old time means that the new run did not finish and that the article on the page is the old article. Notion records that time to the minute, so you cannot tell two runs apart inside one minute.
 
-**Results never expire.** Status is read from the page, not from a job store. A `FAILED` result is an error callout sitting on the page and stays there until someone deletes it, so `FAILED` never decays into `NOT_STARTED` — the two stay distinguishable indefinitely.
-
----
-
-## 4. The five rules — keep these inline in the system prompt
-
-Each exists because getting it wrong produces a confidently-delivered wrong answer or duplicated content. **Do not reduce these to a pointer at this document.** A caller that hasn't read them must still follow them.
-
-**1. `clip_article` succeeding does NOT mean the article was clipped.**
-It means the work started. It runs in the background and can still fail afterwards. Never report success on the strength of it — confirm with `clip_status` first.
-
-**2. A transport error from `clip_article` does NOT mean nothing happened.**
-The work is dispatched *before* the reply is sent. If the tool call times out or reports the server as not responding, the clip may well be running. **Never call `clip_article` a second time on the strength of an error alone.** Call `clip_status` first and let the page say what actually happened:
-
-- `NOT_STARTED` → nothing was written, so calling `clip_article` again is safe. No `force` — there is nothing to replace.
-- `IN_PROGRESS` → it is running. Keep calling `clip_status`.
-- `FOREIGN_CONTENT` → the page has content that is not ours and nothing is running. Do **not** call `clip_article` to recover; ask the user what the content is first.
-- `CLIPPED` → it worked despite the error. Report success.
-
-Retrying `clip_article` *without* that check is how a page ends up with the article on it twice. The first call after a quiet spell is the one most likely to error this way, and recovering through `clip_status` is expected rather than exceptional.
-
-**3. On `IN_PROGRESS`, call `clip_status` again — do not ask the user.**
-The tool waits server-side, so calling it again *is* how you wait. A long illustrated article may need several calls. Only after roughly ten should the caller say the run appears to have died. Never ask the user to say "check again"; chasing a background job is not the user's work.
-
-**4. Never retry on your own initiative after a `FAILED`.**
-Relay what the message said. Most failures — a paywall, a page outside Resources, a bad URL — do not change on a retry, and the message says so when that is the case. If it indicates a retry may help, offer that and let the user decide.
-
-**5. `force: true` only when re-clipping a page that already has a clip.**
-Never on a first attempt. It deletes the existing clip before rewriting.
+**A result does not expire.** The service reads the state from the page and not from a job store. A `FAILED` result is an error callout on the page. It stays until a person deletes it. Therefore `FAILED` never becomes `NOT_STARTED`, and the two states stay different.
 
 ---
 
-## 5. What it handles, and what it doesn't
+## 4. The five rules — keep these in the system prompt
 
-**Preserved:** headings, paragraphs, inline formatting, links, nested lists, blockquotes, code blocks with language, images with captions, tables, footnotes. Long paragraphs are split across Notion's 2000-character limit rather than truncated.
+Each rule exists because an incorrect action gives an incorrect answer with confidence, or gives content two times. **Do not replace these with a link to this document.** A caller that has not read this document must still obey them.
 
-**Images** are imported into Notion. A stored image serves from an `amazonaws.com` URL, not the source site's domain — that is how you verify it. An image that can't be imported degrades to an external reference rather than vanishing.
+**1. A successful `clip_article` does NOT mean that the service clipped the article.**
+It means that the work started. The work continues in the background and can still fail. Never report success because of this response. Use `clip_status` to confirm the result first.
 
-**The lead image is captured**, meaning the hero that sits *above* the article body — where most news sites and WordPress themes put it, alongside its credit line. It lands directly below the `Source:` line, above the first heading, with its caption. Before 2026-08-15 it was lost silently: the article extracted fine and nothing reported a problem, so the only sign was an image you remembered seeing on the site.
+**2. A transport error from `clip_article` does NOT mean that nothing occurred.**
+The service starts the work **before** it sends the response. If the tool call times out or reports that the server does not answer, the clip can still operate. **Never call `clip_article` a second time only because of an error.** Call `clip_status` first and let the page give the result:
 
-Selection is deliberately strict — a missing hero is a minor loss, while a site logo at the top of every clip would be a visible defect on every page. Site logos, author headshots, event promos and tracking pixels are rejected, and a hero that is already in the article body is skipped rather than inserted twice.
+- `NOT_STARTED` — the service wrote nothing, so a second `clip_article` call is safe. Do not use `force`. There is nothing to replace.
+- `IN_PROGRESS` — the run operates. Continue to call `clip_status`.
+- `FOREIGN_CONTENT` — the page has content that this service did not write, and no run operates. Do **not** call `clip_article`. Ask the user what the content is first.
+- `CLIPPED` — the clip operated although there was an error. Report success.
 
-**Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly, before anything is written. The fallback is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
+If you call `clip_article` again without this check, the page can receive the article two times. The first call after a quiet period is the most probable cause of this error. Recovery with `clip_status` is usual and not exceptional.
 
-**A site refusing the request is a different failure, and says so.** Bot protection at a site's edge can turn away a server-side fetch while serving the same article to any browser — the refusal is aimed at the client making the request, not at an anonymous reader. No account exists that would change it, so the message names the site, gives the HTTP status, and states plainly that this is not a paywall and no login will help.
+**3. After `IN_PROGRESS`, call `clip_status` again. Do not ask the user.**
+The tool waits on the server, so a second call **is** the method to wait. A long article with images can need some calls. Only after approximately ten calls can the caller say that the run stopped. Never ask the user to say "check again". The user does not do this work.
 
-Do not relay one of these as the other. Until 2026-08-16 both produced the same sentence — *"this article can't be fetched without a login"* — which sent the user hunting for a subscription on a free article. If the message does not mention a login or subscription, do not introduce one.
+**4. Never try again by your own decision after a `FAILED`.**
+Give the message to the user. Most failures do not change after a second attempt: a paywall, a page outside Resources, or an incorrect URL. The message says this when it applies. If the message says that a second attempt can help, tell the user and let the user decide.
 
-**A newly created Resources page already has content, and that is normal.** The templates — `[New resource] <v1.0>` and its siblings — seed a version toggle and a divider along with preset properties. Verified 2026-08-14. **Clip into the page regardless; never wait for it to look a particular way before starting.**
-
-**Existing content is not evidence of an existing clip.** The `force: false` guard is per-URL, not per-page (section 2): a page is "already clipped" only when it carries a clip header linking to *that* URL. Template furniture, or notes you added, are neither. Reaching for `force` because a page isn't empty would break rule 5 and delete content that was never a clip.
-
-Two related failures are worth knowing about, because both were real:
-
-- An earlier version of this guidance told the caller to wait until template content appeared. That deadlocked a session — it followed the instruction correctly, read a blank page, and stopped, waiting for something that was never coming. The instruction was unfalsifiable: a blank page looks identical whether a template is still landing or has nothing to land.
-- The reverse then became possible when templates gained bodies. `clip_status` briefly read any content-bearing page as a clip mid-write, so a fresh page reported `IN_PROGRESS` with nothing running. Fixed by requiring enough content to look like a half-written article rather than furniture.
+**5. Use `force: true` only for a page that already has a clip.**
+Never use it for a first attempt. It deletes the clip that exists before it writes the new clip.
 
 ---
 
-## 6. Troubleshooting
+## 5. What the service does and does not do
 
-| Symptom | What it means | What to do |
+**The service keeps these:** headings, paragraphs, inline formatting, links, nested lists, quotations, code blocks with the language, images with captions, tables, and footnotes. It divides a long paragraph across the Notion limit of 2,000 characters. It does not remove text.
+
+**The service imports the images into Notion.** An image in Notion comes from an `amazonaws.com` URL and not from the domain of the source website. Use this to confirm that an image is in Notion. If the service cannot import an image, it uses an external link and does not remove the image.
+
+**The service captures the lead image.** This is the main image **above** the body of the article, where most news websites and WordPress themes put it, with its credit line. The service puts it directly below the `Source:` line, above the first heading, with its caption. Before 2026-08-15 the service lost this image and reported no problem. The article extracted correctly and nothing showed an error, so the only sign was an image that you remembered from the website.
+
+The selection is strict on purpose. A lost main image is a small loss. A site logo at the top of each clip is a visible defect on each page. The service rejects site logos, author photographs, event advertisements, and tracking pixels. If the main image is already in the body of the article, the service does not insert it a second time.
+
+**Paywalls and login walls are out of scope by design.** The service reads the URL from a server with no session and cannot log in. It detects the wall and fails with a visible message, before it writes anything. The alternative is the Notion Web Clipper browser extension. The system prompt must say this, because it is the next action of the user.
+
+**A website that refuses the request is a different failure, and the message says so.** Bot protection at the edge of a website can refuse a request from a server and supply the same article to any browser. The refusal applies to the client that makes the request and not to an anonymous reader. No account changes this. Therefore the message gives the name of the website, the HTTP status, and a clear statement that this is not a paywall and that a login does not help.
+
+Do not give one of these messages as the other. Until 2026-08-16 both gave the same sentence: "this article can't be fetched without a login". This caused the user to look for a subscription for a free article. If the message does not say login or subscription, do not add one.
+
+**A new Resources page already has content, and this is usual.** The templates `[New resource] <v1.0>` and its similar templates add a version toggle and a divider, with the preset properties. Confirmed on 2026-08-14. **Clip into the page. Never wait for the page to have a specific appearance before you start.**
+
+**Content on a page does not show that a clip exists.** The `force: false` check is for each URL and not for each page (section 2). A page has a clip only when it has a clip header with a link to **that** URL. Template content and your notes are not a clip. If you use `force` because a page is not empty, you break rule 5 and delete content that was never a clip.
+
+Two failures are worth knowing, because both occurred:
+
+- An earlier version of this document told the caller to wait until the template content arrived. A session followed that instruction correctly, read an empty page, and stopped. It waited for content that was never going to arrive. The caller could not test the instruction: an empty page looks the same if a template is still arriving and if there is nothing to arrive.
+- The opposite failure then became possible when the templates gained a body. `clip_status` read any page with content as a clip in progress. Therefore a new page gave `IN_PROGRESS` although no run operated. The correction requires sufficient content to look like a partial article and not like template content.
+
+---
+
+## 6. Problems and corrections
+
+| Symptom | Meaning | Action |
 |---|---|---|
-| Tool call errors, "server isn't responding" | The client gave up before the reply arrived. The clip may be running. | Call `clip_status`. **Never** re-call `clip_article` until `clip_status` says the page is untouched. |
-| The **first** call after a quiet spell errors, later ones work | Cold start. Known and expected. | Call `clip_status` once to establish the true state, then carry on. One retry is normal; a pattern of them is not. |
-| `STATUS: FAILED`, paywall or subscription mentioned | A genuine login or subscription wall, detected before anything was written | Tell the user to use the Web Clipper for that article |
-| `STATUS: FAILED`, "refused this request" or "bot-check page" | The site's bot protection turned the fetch away. **Not a paywall** — the message says so | Tell the user to use the Web Clipper. Do not suggest logging in or subscribing |
-| `STATUS: FAILED`, other reason | Page carries an error callout; any content on it is partial | Relay verbatim; recovery is a `force` re-clip |
-| `STATUS: NOT_STARTED` | Page genuinely empty — never called, or rejected before writing | Do not report success. A fresh clip is safe here. |
-| `STATUS: FOREIGN_CONTENT` | Page has content this service did not write — usually a Web Clipper save after a failed clip. Nothing is running | Do not poll; it will not change. Do not clip without asking — plain appends a duplicate, `force` deletes what is there |
-| "That page can't be read…" | Wrong page id, page outside Resources, or page deleted/in trash | Check the id. Retrying will not help. |
-| Tools missing from the session entirely | Connector cached or not enabled for that conversation | Check the per-conversation connector toggle; if that fails, disconnect and reconnect the connector |
-| `STATUS: CLIPPED` but images look broken | Import may have degraded to external references | Relay the user's report rather than insisting it worked — `CLIPPED` confirms the article was written, not every image |
+| The tool call gives an error, "server isn't responding" | The client stopped waiting before the response arrived. The clip can still operate. | Call `clip_status`. **Never** call `clip_article` again until `clip_status` says that the page has no content. |
+| The **first** call after a quiet period gives an error, and later calls operate | A cold container. This is known and expected. | Call `clip_status` one time to find the true state, then continue. One error is usual. Many errors are not usual. |
+| `STATUS: FAILED`, and the message says paywall or subscription | A true login wall or subscription wall, detected before the service wrote anything | Tell the user to use the Web Clipper for that article |
+| `STATUS: FAILED`, and the message says "refused this request" or "bot-check page" | The bot protection of the website refused the request. **This is not a paywall.** The message says so. | Tell the user to use the Web Clipper. Do not tell the user to log in or to subscribe. |
+| `STATUS: FAILED`, a different cause | The page has an error callout. Any content on the page is partial. | Give the message with no change. To recover, clip again with `force`. |
+| `STATUS: NOT_STARTED` | The page is empty. The service was never called, or it refused the request before it wrote anything. | Do not report success. A new clip is safe. |
+| `STATUS: FOREIGN_CONTENT` | The page has content that this service did not write, usually a Web Clipper save after a failed clip. No run operates. | Do not call again. The answer will not change. Do not clip before you ask: a clip with no `force` adds a duplicate, and `force` deletes the content. |
+| "That page can't be read…" | An incorrect page id, a page outside Resources, or a page that a person deleted | Check the id. A second attempt does not help. |
+| The tools are not in the session | The connector uses a cache, or it is not enabled for that conversation | Check the connector control for that conversation. If that does not operate, disconnect the connector and connect it again. |
+| `STATUS: CLIPPED` but the images look incorrect | The import can have used external links | Give the report from the user. Do not say that the clip is correct. `CLIPPED` confirms that the service wrote the article, not that each image is correct. |
 
-**A page that looks created but empty is the worst outcome**, because it looks like success until someone opens it. Every rule above exists to prevent the caller reporting that as done.
+**The worst result is a page that looks complete and is empty**, because it looks like a success until a person opens it. Each rule above prevents the caller from reporting that page as complete.
 
 ---
 
-## 7. Connector setup — operator only
+## 7. Connector setup — for the operator only
 
-**Not for the calling session.** Nothing here is actionable from a chat; it is for whoever configures the connector in claude.ai settings.
+**This section is not for the calling session.** A chat session cannot use any of this. It is for the person who configures the connector in the claude.ai settings.
 
-URL form — **the token is a path segment, not a query parameter**:
+The form of the URL. **The token is a path segment and not a query parameter:**
 
 ```
 https://<your-site>.netlify.app/mcp/<CLIP_SHARED_SECRET>
 ```
 
-The deployed instance's real host belongs in the Notion copy of this document, which only the operator and the calling session read. Keep it out of the public repository.
+The real host of the deployed service belongs in the Notion copy of this document, which only the operator and the calling session read. Keep it out of the public repository.
 
-The `?token=` form is still accepted by the server but **does not work through claude.ai** — the query string does not survive the trip, so the connector attaches and then reports no tools. This cost hours to diagnose; don't reintroduce it.
+The server still accepts the `?token=` form, but **it does not operate through claude.ai**. The query string does not arrive. Therefore the connector connects and then reports no tools. This took hours to diagnose. Do not use it again.
 
-Rotating the secret means updating **three** places: the Netlify environment variable, a redeploy (env changes don't reach live functions otherwise), and the connector URL.
+To change the secret, you must change **three** items: the Netlify environment variable, the deploy (an environment change does not reach the live functions without a deploy), and the URL of the connector.
 
-If tools don't appear after a change, disconnect and re-add the connector rather than editing it — the settings page can show a stale URL.
+If the tools do not appear after a change, disconnect the connector and add it again. Do not edit it. The settings page can show an old URL.
 
-**Target verification.** The service only writes to pages whose parent is the data source named in `RESOURCES_DATA_SOURCE_ID`, which is required and has no default. A leaked token therefore cannot append to arbitrary pages in the workspace.
+**Target check.** The service writes only to a page whose parent is the data source in `RESOURCES_DATA_SOURCE_ID`. That variable is necessary and has no default value. Therefore a person who gets the token cannot write to other pages in the workspace.
 
-**Checking a clip by hand.** Images genuinely stored in Notion serve from an `amazonaws.com` URL rather than the source site's domain — that is the check that matters most, and the only reliable way to tell a stored image from a hotlinked one. In the Netlify function logs, `image_degraded` and `image_import_failed` mark images that fell back to external references; a cluster of them means something systematic about that site. If a long illustrated article approaches the 15-minute background-function ceiling, `IMAGE_CONCURRENCY` and the image poll intervals are the tunables to reach for.
-
----
-
-## 8. Known limitations, all deliberate
-
-- **`force` deletes from the clip header to the end of the page.** Notes added *below* a clip go with it. Anything above the header is untouched.
-- **Tables with merged cells** fall back to the original HTML in a code block — lossless but ugly. Notion has no merged cells.
-- **Code block languages are lost on some sites** (MDN-style markup, where the language sits in a sibling element). The code is intact and correctly formatted, just unlabelled, with the language name appearing as a stray word above it.
-- **List nesting deeper than two levels is flattened**, not dropped.
-- **Paywall detection is heuristic.** A soft paywall serving a long teaser with no recognisable subscribe wording could be clipped and reported `CLIPPED`. If a clip stops abruptly mid-article, that is the case to suspect.
-- **Some sites refuse this service outright, whatever it sends.** Bot protection can score the *client* rather than the reader, and a server-side fetch from Node is refused on its TLS fingerprint before headers are even considered. Measured on `ecuad.ca`: curl and Python got the article from the same machine and IP that Node was 403'd from, and browser-like headers changed nothing. These sites are Web Clipper territory until they change their own settings — there is no fix available inside the service.
-- **Images inside table cells are dropped** from the cell — Notion cells hold rich text only.
+**How to check a clip manually.** An image that is in Notion comes from an `amazonaws.com` URL and not from the domain of the source website. This is the most important check, and it is the only reliable method to tell an image in Notion from an external link. In the Netlify function logs, `image_degraded` and `image_import_failed` show images that became external links. Many of these for one website show a systematic cause. If a long article with many images approaches the 15-minute limit of the background function, change `IMAGE_CONCURRENCY` and the image poll intervals.
 
 ---
 
-## 9. Tone note for the system prompt
+## 8. Known limits, all accepted on purpose
 
-The failure this whole service is built against is a caller reporting success for a clip that didn't happen. Whatever wording you choose, the prompt should make the caller comfortable saying *"it's still running"*, *"it failed, here's why"*, or *"I can't tell yet"* — and never let it round any of those up to "done".
+- **`force` deletes each block from the clip header to the end of the page.** A note below a clip is deleted with the clip. Content above the header does not change.
+- **A table with merged cells becomes the original HTML in a code block.** No data is lost, but it is not easy to read. Notion has no merged cells.
+- **The service loses the code-block language on some websites** (MDN-style HTML, where the language is in a sibling element). The code is complete and formatted correctly. It has no language name, and the name of the language is one additional word above the block.
+- **The service makes list levels deeper than two into level two.** It does not remove them.
+- **Paywall detection uses rules that can be incorrect.** A partial paywall that supplies a long sample with no recognised subscribe text can produce a clip with a `CLIPPED` result. If a clip stops in the middle of an article, this is the probable cause.
+- **Some websites refuse this service, whatever it sends.** Bot protection can evaluate the **client** and not the reader. It refuses a request from Node because of the TLS fingerprint, before it examines the headers. Measured on `ecuad.ca`: curl and Python received the article from the same machine and the same IP address that received a 403 for Node, and browser-like headers changed nothing. Use the Web Clipper for these websites until the website changes its settings. There is no correction inside the service.
+- **The service removes an image inside a table cell.** A Notion cell holds only rich text.
+
+---
+
+## 9. A note about the tone of the system prompt
+
+This service exists to prevent one failure: a caller that reports success for a clip that did not occur. Use any words that you want, but the prompt must let the caller say **"the run continues"**, **"it failed, and this is the cause"**, or **"I cannot tell yet"**. The prompt must never let the caller change one of these into "complete".
