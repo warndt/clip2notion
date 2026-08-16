@@ -38,6 +38,7 @@ Then check the images actually render. That is the one thing no tool can verify 
 - **Article there but wrong** (missing sections, mangled tables) — ask Claude to re-clip it with force. That deletes the existing clip and rebuilds it.
 - **A ⏳ callout still there after several minutes** — the run died. Ask for a force re-clip.
 - **Paywalled or login-walled** — the service can't log in to anything, by design. Use the Notion Web Clipper browser extension for those. Same for pages rendered entirely in JavaScript.
+- **The site refused the request** — some sites run bot protection that turns away any server-side fetch, even when the article is free and open in your browser. The error says so explicitly, and says that no login will help. The Web Clipper runs inside your browser, so it is unaffected.
 
 ### One thing to know about `force`
 
@@ -162,6 +163,10 @@ Selection is deliberately strict — a missing hero is a minor loss, while a sit
 
 **Paywalls and login walls are out of scope by design.** The service fetches server-side with no session and cannot log in to anything. It detects the wall and fails visibly, before anything is written. The fallback is the Notion Web Clipper browser extension — the system prompt should say so, since it is the user's actual next step.
 
+**A site refusing the request is a different failure, and says so.** Bot protection at a site's edge can turn away a server-side fetch while serving the same article to any browser — the refusal is aimed at the client making the request, not at an anonymous reader. No account exists that would change it, so the message names the site, gives the HTTP status, and states plainly that this is not a paywall and no login will help.
+
+Do not relay one of these as the other. Until 2026-08-16 both produced the same sentence — *"this article can't be fetched without a login"* — which sent the user hunting for a subscription on a free article. If the message does not mention a login or subscription, do not introduce one.
+
 **A newly created Resources page already has content, and that is normal.** The templates — `[New resource] <v1.0>` and its siblings — seed a version toggle and a divider along with preset properties. Verified 2026-08-14. **Clip into the page regardless; never wait for it to look a particular way before starting.**
 
 **Existing content is not evidence of an existing clip.** The `force: false` guard is per-URL, not per-page (section 2): a page is "already clipped" only when it carries a clip header linking to *that* URL. Template furniture, or notes you added, are neither. Reaching for `force` because a page isn't empty would break rule 5 and delete content that was never a clip.
@@ -179,7 +184,8 @@ Two related failures are worth knowing about, because both were real:
 |---|---|---|
 | Tool call errors, "server isn't responding" | The client gave up before the reply arrived. The clip may be running. | Call `clip_status`. **Never** re-call `clip_article` until `clip_status` says the page is untouched. |
 | The **first** call after a quiet spell errors, later ones work | Cold start. Known and expected. | Call `clip_status` once to establish the true state, then carry on. One retry is normal; a pattern of them is not. |
-| `STATUS: FAILED`, paywall mentioned | Bot-block or paywall detected before anything was written | Tell the user to use the Web Clipper for that article |
+| `STATUS: FAILED`, paywall or subscription mentioned | A genuine login or subscription wall, detected before anything was written | Tell the user to use the Web Clipper for that article |
+| `STATUS: FAILED`, "refused this request" or "bot-check page" | The site's bot protection turned the fetch away. **Not a paywall** — the message says so | Tell the user to use the Web Clipper. Do not suggest logging in or subscribing |
 | `STATUS: FAILED`, other reason | Page carries an error callout; any content on it is partial | Relay verbatim; recovery is a `force` re-clip |
 | `STATUS: NOT_STARTED` | Page genuinely empty — never called, or rejected before writing | Do not report success. A fresh clip is safe here. |
 | "That page can't be read…" | Wrong page id, page outside Resources, or page deleted/in trash | Check the id. Retrying will not help. |
@@ -219,6 +225,7 @@ If tools don't appear after a change, disconnect and re-add the connector rather
 - **Code block languages are lost on some sites** (MDN-style markup, where the language sits in a sibling element). The code is intact and correctly formatted, just unlabelled, with the language name appearing as a stray word above it.
 - **List nesting deeper than two levels is flattened**, not dropped.
 - **Paywall detection is heuristic.** A soft paywall serving a long teaser with no recognisable subscribe wording could be clipped and reported `CLIPPED`. If a clip stops abruptly mid-article, that is the case to suspect.
+- **Some sites refuse this service outright, whatever it sends.** Bot protection can score the *client* rather than the reader, and a server-side fetch from Node is refused on its TLS fingerprint before headers are even considered. Measured on `ecuad.ca`: curl and Python got the article from the same machine and IP that Node was 403'd from, and browser-like headers changed nothing. These sites are Web Clipper territory until they change their own settings — there is no fix available inside the service.
 - **Images inside table cells are dropped** from the cell — Notion cells hold rich text only.
 
 ---

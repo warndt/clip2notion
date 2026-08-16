@@ -277,6 +277,21 @@ Seven tests, including the two that keep the fix honest: an icon inside a senten
 
 Discovered work goes here rather than getting fixed in place.
 
+**🟡 A 403 was reported to the user as a paywall. Message split — awaiting review (2026-08-16).**
+
+`ecuad.ca` failed a clip (`clp_km0rcf25`) with *"Paywall or bot-block detected — this article can't be fetched without a login."* The article is free and open. So is the site.
+
+Root cause, measured rather than assumed: **Cloudflare refuses this service on Node's TLS fingerprint, not on its headers or Netlify's IPs.** From one residential machine, same IP, same three headers — curl over HTTP/1.1 → 200, Python → 200, Node `fetch` → 403, `node:https` → 403. Replaying undici's exact header set *and order* through curl still → 200. Cipher-list and `ecdhCurve` tuning from Node changed nothing. Incidentally: undici silently overwrites `Sec-Fetch-Mode: navigate` with `cors`, so `fetch` cannot present itself as a document navigation — though that was not the trigger either.
+
+**So "send browser-like headers" is not a fix, and was deliberately not shipped.** The lever is below the header layer and Node's TLS stack does not expose it. Recorded here so it does not get re-proposed.
+
+What did ship: `errors.blocked` split into `paywalled` / `refused` / `botChallenge` / `rateLimited`, all still `BLOCKED` and non-transient, so retry semantics are untouched. 401/402 → paywall; 403/451 → refused; 429 → rate-limited. The upstream status is now a first-class `http_status` log field rather than only prose inside `detail`. `TOOL-BRIEF.md` updated in the same commit — **the Notion copy and the caller's system prompt still need re-syncing.**
+
+Two open threads:
+
+- **This is systematic, not site-specific.** Any site with bot protection turned up will do it. The same day, `loudersound.com` failed with the same symptom and a *different* cause — it 403s curl too, so that one is an everyone-blocked wall rather than a fingerprint issue. Both were reported to the user as paywalls. If these accumulate, the question worth asking is whether a fetch-through proxy earns its keep; it is one external dependency on every clip, so not yet.
+- **`ecuad.ca` is Web Clipper territory** until the university relaxes its own settings. Nothing to fix in the service.
+
 **Found while smoke-testing real articles (fetch + extract + convert only — no Notion round trip yet):**
 
 - ✅ Handled: `blog.rust-lang.org` answers a moved URL with a **200 whose body is a meta-refresh stub**. `fetch` doesn't follow those, so the clip failed as "not extractable" on a perfectly good article. `metaRefreshTarget` now follows short-delay refreshes on small pages. Regression-tested.

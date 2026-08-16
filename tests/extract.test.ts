@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertSafeUrl, extractArticle, metaRefreshTarget } from "../src/extract";
+import { assertSafeUrl, extractArticle, fetchArticle, metaRefreshTarget } from "../src/extract";
 import { ClipError } from "../src/errors";
 
 function codeOf(fn: () => unknown): string {
@@ -134,6 +134,101 @@ test("a declared paywall is blocked even when the teaser is long", () => {
     `<title>Declared</title>`,
   );
   assert.equal(codeOf(() => extractArticle(html, "https://example.com/a")), "BLOCKED");
+});
+
+// --- Blocked: a paywall and a refusal are not the same thing ---------------
+
+/**
+ * Both are `BLOCKED`, and for a while both produced the same sentence — one
+ * telling the user the article "can't be fetched without a login".
+ *
+ * That was wrong often enough to matter. ecuad.ca answers this service with a
+ * 403 while serving the same article to any browser: the refusal is aimed at
+ * Node's TLS fingerprint, not at an anonymous reader, and no account exists
+ * that would change it. Sending someone to hunt for a login they don't need is
+ * the failure this splits apart.
+ *
+ * The wording *is* the fix, so the wording is asserted here — checking only the
+ * code would pass against the bug this was written for.
+ */
+async function clipErrorFrom(fn: () => Promise<unknown>): Promise<ClipError> {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof ClipError) return err;
+    throw err;
+  }
+  throw new Error("expected the call to throw");
+}
+
+async function withStatus(status: number, run: () => Promise<void>): Promise<void> {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("<html><body>no</body></html>", { status })) as typeof fetch;
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("a 403 reports the site refusing the request, and says a login won't help", async () => {
+  await withStatus(403, async () => {
+    const err = await clipErrorFrom(() => fetchArticle("https://example.com/a"));
+    assert.equal(err.code, "BLOCKED");
+    assert.equal(err.transient, false);
+    assert.equal(err.httpStatus, 403);
+    assert.match(err.userMessage, /refused this request/i);
+    assert.match(err.userMessage, /not a paywall/i);
+    assert.match(err.userMessage, /no login will help/i);
+  });
+});
+
+test("a 401 still reports a genuine login wall", async () => {
+  await withStatus(401, async () => {
+    const err = await clipErrorFrom(() => fetchArticle("https://example.com/a"));
+    assert.equal(err.code, "BLOCKED");
+    assert.match(err.userMessage, /behind a login or subscription/i);
+    assert.doesNotMatch(err.userMessage, /not a paywall/i);
+  });
+});
+
+test("a 429 reports rate limiting, and is not retried automatically", async () => {
+  await withStatus(429, async () => {
+    const err = await clipErrorFrom(() => fetchArticle("https://example.com/a"));
+    assert.equal(err.code, "BLOCKED");
+    // Throwing would hand this to Netlify's retries — more traffic at a host
+    // that just asked for less.
+    assert.equal(err.transient, false);
+    assert.match(err.userMessage, /rate-limiting/i);
+  });
+});
+
+test("a bot-check interstitial does not claim a login is needed", () => {
+  const html = page("<h1>Just a moment...</h1><p>Checking your browser.</p>", "<title>Just a moment...</title>");
+  try {
+    extractArticle(html, "https://example.com/a");
+    throw new Error("expected the call to throw");
+  } catch (err) {
+    assert.ok(err instanceof ClipError);
+    assert.equal(err.code, "BLOCKED");
+    assert.match(err.userMessage, /bot-check page/i);
+    assert.match(err.userMessage, /no login will help/i);
+  }
+});
+
+test("a real subscribe wall is still reported as a paywall", () => {
+  const html = page(
+    `<article><h1>Members Only</h1><p>A short teaser paragraph.</p>
+     <div>Subscribe to continue reading this story.</div></article>`,
+    `<title>Members Only</title>`,
+  );
+  try {
+    extractArticle(html, "https://example.com/a");
+    throw new Error("expected the call to throw");
+  } catch (err) {
+    assert.ok(err instanceof ClipError);
+    assert.match(err.userMessage, /behind a login or subscription/i);
+  }
 });
 
 test("a page with no article is reported as not extractable, not as an empty clip", () => {
