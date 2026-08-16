@@ -68,7 +68,7 @@ The M2 clips below show that the pipeline operates. They do not show that the re
 - ✅ **Changed to MCP.** `netlify/functions/mcp.ts` now supplies `clip_article` and `clip_status`. A token in the URL of the connector authenticates the caller. The probe is deleted. The pipeline behind it did not change.
 - ✅ `src/pipeline.ts` received `deriveClipStatus` (a pure function with tests) and `getClipStatus`.
 - ✅ The caller documentation was written again for the two tools and the start-then-confirm sequence.
-- ✅ Deployed. The connector now uses `/mcp/<token>`. A real clip operated fully from a chat session. **The query-string form did not operate.** claude.ai sent the request with no query string (`has_query: false` in each logged request). Therefore the connector connected but supplied no tools. A path segment carries the token correctly. The service still accepts a query string, an `Authorization` header, and an `X-Clip-Secret` header.
+- ✅ Deployed. The connector now uses `/mcp/<token>`. A real clip operated fully from a chat session. **The query-string form did not operate.** claude.ai sent the request with no query string (`has_query: false` in each logged request). Therefore the connector connected but supplied no tools. A path segment carries the token correctly. The service also accepted a query string, an `Authorization` header, and an `X-Clip-Secret` header. ⚠️ **This is no longer correct.** The service now accepts only the path segment and the `X-Clip-Secret` header. Refer to the Backlog item of 2026-08-16.
 
 ### Test results: how each failure channel operates
 
@@ -285,6 +285,16 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 ## Backlog
 
 Write new work here. Do not correct it immediately.
+
+**✅ `mcp.ts` accepted the token from two routes that nothing uses. Removed and approved (2026-08-16).**
+
+From a security audit. `providedToken()` read the token from four locations: the `/mcp/<token>` path segment, a `?token=` query string, an `Authorization: Bearer` header, and an `X-Clip-Secret` header. The last two of these four were never used. The connector uses the path. A terminal test uses the header.
+
+The query string is the least safe of the four. A query string goes into proxy logs, referrer headers, and analytics much more easily than a path does. Code that reads it also lets a client that is configured incorrectly change to that weaker route with no message and no failure.
+
+The service now reads the path segment and the `X-Clip-Secret` header only. A request that carries the token only in a query string is now unauthenticated and receives a 401. **This is the intended result.** `redactPath()` did not change. The `has_query` log field also did not change: now that the query form is refused, that field is the signal that a client sends a token to a location that the service no longer reads. `clip.ts` and `clip-background.ts` did not change. Both authenticate with the header only.
+
+`TOOL-BRIEF.md` and `README.md` changed in the same commit, because both said that the server accepts `?token=`. ⚠️ **A person must update the Notion copy of `TOOL-BRIEF.md`.**
 
 **⬜ `loudersound.com` refuses all clients, not only this service. Not investigated (found 2026-08-16).**
 

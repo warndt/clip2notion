@@ -151,7 +151,7 @@ Add an MCP connector with this URL:
 https://<your-site>.netlify.app/mcp/<CLIP_SHARED_SECRET>
 ```
 
-The secret is a part of the path. Do not use a query string. The server accepts `?token=`, but claude.ai removes query strings. If this occurs, the connector connects but supplies no tools.
+The secret is a part of the path. The server refuses the `?token=` form and gives 401, because a query string goes into proxy logs and referrer headers. claude.ai also removes query strings, so that form never operated: the connector connects but supplies no tools.
 
 The connector is only one part. The calling session also needs a system prompt. The prompt must tell the session to create the page first, then call `clip_article`, then call `clip_status` before it tells the user the result. You can copy [TOOL-BRIEF.md](TOOL-BRIEF.md) into a Notion page that the session reads.
 

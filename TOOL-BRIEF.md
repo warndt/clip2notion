@@ -215,7 +215,7 @@ https://<your-site>.netlify.app/mcp/<CLIP_SHARED_SECRET>
 
 The real host of the deployed service belongs in the Notion copy of this document, which only the operator and the calling session read. Keep it out of the public repository.
 
-The server still accepts the `?token=` form, but **it does not operate through claude.ai**. The query string does not arrive. Therefore the connector connects and then reports no tools. This took hours to diagnose. Do not use it again.
+**The server refuses the `?token=` form.** It gives 401 to a request that carries the token only in a query string. That form never operated through claude.ai, because the query string does not arrive: the connector connects and then reports no tools. This took hours to diagnose. A query string is also the least safe location for a secret, because it goes into proxy logs and referrer headers. Therefore the server no longer reads it. The path segment and the `X-Clip-Secret` header are the only two forms.
 
 To change the secret, you must change **three** items: the Netlify environment variable, the deploy (an environment change does not reach the live functions without a deploy), and the URL of the connector.
 

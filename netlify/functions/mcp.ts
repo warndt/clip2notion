@@ -440,17 +440,6 @@ function statusResponse(
 // --- Transport -------------------------------------------------------------
 
 /**
- * Where the caller's token came from.
- *
- * A **path segment** is preferred over a query string. Query strings are the
- * fragile part of a URL: they get dropped by normalisation, by proxies, and by
- * anything that stores an endpoint as origin + path. A connector can then pass
- * its settings-page connection test on the full URL and afterwards call the
- * endpoint without the query, which reads here as an unauthenticated request.
- *
- * Every form is accepted so that whichever survives the trip works.
- */
-/**
  * Replace a token-carrying path segment before the path is logged.
  *
  * `/mcp/<token>` becomes `/mcp/<redacted>`. Without this, the credential ends
@@ -463,6 +452,24 @@ function redactPath(pathname: string): string {
   return pathname;
 }
 
+/**
+ * Where the caller's token came from.
+ *
+ * Two routes, because two routes are used: the `/mcp/<token>` path segment,
+ * which is how the claude.ai connector calls this server, and an
+ * `X-Clip-Secret` header, which is how it is called from a terminal.
+ *
+ * **A `?token=` query string is not accepted.** A query string is the leakiest
+ * place to carry a credential — it lands in proxy logs, referrer headers, and
+ * analytics far more readily than a path does. Reading it here would also let a
+ * client misconfiguration downgrade us onto that weaker route silently, since
+ * nothing would fail. A request bearing only `?token=` is unauthenticated, and
+ * that is the intended answer, not a gap. `has_query` is still logged, so a
+ * client sending a token somewhere no longer read shows up in the logs.
+ *
+ * An `Authorization: Bearer` header is not accepted either. Nothing sends one,
+ * and an unused credential route is only a place for a mistake to hide.
+ */
 function providedToken(req: Request): { token: string; source: string } {
   const url = new URL(req.url);
 
@@ -471,14 +478,6 @@ function providedToken(req: Request): { token: string; source: string } {
   if (segments.length > 1 && segments[0] === "mcp") {
     const last = segments[segments.length - 1];
     if (last) return { token: decodeURIComponent(last), source: "path" };
-  }
-
-  const fromQuery = url.searchParams.get("token");
-  if (fromQuery) return { token: fromQuery, source: "query" };
-
-  const auth = req.headers.get("authorization") ?? "";
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    return { token: auth.slice(7).trim(), source: "bearer" };
   }
 
   const header = req.headers.get("x-clip-secret");
