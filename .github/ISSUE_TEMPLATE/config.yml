@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/warndt/clip2notion/security/advisories/new
+    about: Report privately. Please do not open a public issue for a security problem.
+  - name: Adapting this to your own setup
+    url: https://github.com/warndt/clip2notion#adapting-it
+    about: Different database, different platform, or without Claude — start here. If it doesn't cover your case, that's a docs bug worth reporting.
+  - name: Why pull requests aren't accepted
+    url: https://github.com/warndt/clip2notion/blob/main/CONTRIBUTING.md
+    about: Suggestions yes, pull requests no, forks encouraged. The reasoning is here.

@@ -1,0 +1,63 @@
+name: A site clips badly
+description: An article came through incomplete, mangled, or not at all
+labels: ["extraction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful report this project gets. Nearly every fix in
+        `ROADMAP.md`'s backlog started as one real article that broke something,
+        and each one became a test case.
+
+        You do **not** need to diagnose it. The URL plus what looked wrong is enough.
+
+  - type: input
+    id: url
+    attributes:
+      label: Article URL
+      description: The page you tried to clip. A public URL if possible — a paywalled one can't be investigated.
+      placeholder: https://example.com/some-article
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What went wrong?
+      options:
+        - Clip failed entirely
+        - Article came through but sections are missing
+        - Headings lost or flattened
+        - Images missing, broken, or tiny
+        - Table mangled or dumped as raw HTML
+        - Code blocks unlabelled or malformed
+        - Footnotes missing or left as stray numbers
+        - Wrong lead image, or a logo used as one
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: What you saw
+      description: What's on the page versus what's on the article. A screenshot of the Notion page helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: The error message, if there was one
+      description: >
+        A failed clip leaves a ⚠️ callout on the Notion page. Paste it verbatim —
+        the wording distinguishes a paywall from a site refusing the request,
+        and those are different problems.
+      render: text
+
+  - type: input
+    id: clip-id
+    attributes:
+      label: Clip id, if you have it
+      description: The `clp_...` string in the error callout. It keys the whole run in the logs.
+      placeholder: clp_km0rcf25
