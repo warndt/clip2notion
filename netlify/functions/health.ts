@@ -50,7 +50,11 @@ function deployInfo(context: NetlifyContext | undefined): Record<string, string 
 export default async function handler(_req: Request, context?: NetlifyContext): Promise<Response> {
   const hasToken = Boolean(process.env.NOTION_TOKEN);
   const hasSecret = Boolean(process.env.CLIP_SHARED_SECRET);
-  const ok = hasToken && hasSecret;
+  // Required since the hardcoded default was removed. Reported the same way as
+  // the secrets, because a missing one breaks the service just as completely —
+  // and this endpoint exists to make that answerable in one request.
+  const hasDataSource = Boolean(process.env.RESOURCES_DATA_SOURCE_ID);
+  const ok = hasToken && hasSecret && hasDataSource;
 
   const body = {
     service: "clip2notion",
@@ -62,7 +66,8 @@ export default async function handler(_req: Request, context?: NetlifyContext): 
       // convenience endpoint into a credential leak.
       NOTION_TOKEN: hasToken ? "set" : "MISSING",
       CLIP_SHARED_SECRET: hasSecret ? "set" : "MISSING",
-      RESOURCES_DATA_SOURCE_ID: process.env.RESOURCES_DATA_SOURCE_ID ? "overridden" : "default",
+      // Not a secret, but not echoed either: it identifies a private database.
+      RESOURCES_DATA_SOURCE_ID: hasDataSource ? "set" : "MISSING",
     },
     config: {
       notion_api_version: process.env.NOTION_API_VERSION ?? "(pinned default)",

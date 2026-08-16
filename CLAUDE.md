@@ -116,7 +116,8 @@ These bound any implementation. Several of them fail late and silently in produc
 
 - Shared secret compared in **constant time**. Never `===`.
 - **Always verify the target page's parent is the Resources data source before writing.** A leaked secret must not permit appending to arbitrary pages in the workspace.
-- SSRF protection on the fetch target: no localhost, no private/link-local/loopback IP ranges, HTTPS only, and re-check **on every redirect hop**, not just the initial URL.
+- SSRF protection on the fetch target: `http`/`https` schemes only, no localhost, no private, link-local, loopback, CGNAT, multicast or reserved ranges — **including their IPv4-mapped IPv6 forms**, which bypassed the guard until 2026-08-16 — and re-check **on every redirect hop**, not just the initial URL.
+- ⚠️ **The guard does not resolve DNS**, so a hostname pointing at a private address still gets through. That is a deliberate, documented limit, not an oversight: closing it needs resolution plus a connect-time socket check, re-done per redirect to defeat rebinding. Anyone deploying this where a real metadata service is reachable should close it.
 
 ---
 
@@ -287,7 +288,7 @@ Set in the Netlify UI (Site configuration → Environment variables). Never in t
 |---|---|---|
 | `NOTION_TOKEN` | yes | Internal integration token. The integration must be shared with the Resources database. **Secret.** |
 | `CLIP_SHARED_SECRET` | yes | Endpoint authentication. **Secret.** |
-| `RESOURCES_DATA_SOURCE_ID` | no | Defaults to `<your-data-source-id>` |
+| `RESOURCES_DATA_SOURCE_ID` | yes | Data source id of the target database. No default — the author's own id used to be one, which a public repo must not ship. |
 | `NOTION_API_VERSION` | no | Defaults to the current pinned version (`2026-03-11` at time of writing) |
 
 ### Post-deploy check
