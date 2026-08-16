@@ -3,94 +3,111 @@
 [![tests](https://github.com/warndt/clip2notion/actions/workflows/test.yml/badge.svg)](https://github.com/warndt/clip2notion/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Fetches a web article and writes its full content — structure intact, images stored inside Notion rather than hotlinked — into a Notion page that already exists.
+This service reads a web article and writes the full content of the article into a Notion page. The page must exist before you call the service.
 
-It is a small, deliberately narrow service: roughly 2,000 lines, two dependencies, one job.
+The service keeps the structure of the article. It stores the images in Notion. It does not link to the images on the source website.
 
-**Status:** deployed and in daily use.
+The service is small. It has approximately 2,000 lines of code and two dependencies.
 
----
-
-## The problem this solves
-
-I wanted a Claude session to file articles into my Notion reading database: create the page, set the status, the areas, the tags, the relations, the dates — and then put the article itself on the page.
-
-Claude is genuinely good at the first part. It fails at the second, in two separate ways that took a while to untangle.
-
-**An assistant cannot hand you someone else's article.** Asking a model to reproduce the full text of a copyrighted piece is a dead end, and correctly so. What you get instead is a summary, a paraphrase, or a partial quotation — and *that is not a clip*. A clip is the article. A paraphrase of the article is a different artifact that happens to be about the same subject, and six months later, when you open the page expecting the source, you find a Claude-flavoured retelling of it.
-
-**Even setting that aside, the output is malformed.** Reconstructed article content loses the things that make an archive worth keeping: heading structure flattens, tables become prose, footnotes vanish or turn into orphaned digits, code blocks lose their language, and images — if they survive at all — end up as hotlinks to the origin server, which rot the moment the source site redesigns.
-
-The Notion Web Clipper browser extension gets all of that right. But it is a browser extension: it needs a human, a browser, and a click, which is exactly what an automated filing workflow does not have.
-
-## What this does instead
-
-It splits the job along the line where the two halves actually differ.
-
-**Claude decides. The service moves bytes.**
-
-Claude — which knows what the article is about, which project it belongs to, and how you file things — creates the page and sets every property. Then it hands this service a `page_id` and a `url`, and the service does the mechanical part: fetch the HTML, run [Readability](https://github.com/mozilla/readability) over it, walk the DOM, and convert it into Notion blocks.
-
-No model ever handles the article text. Nothing is reproduced from memory, summarised, or rewritten — the bytes go from the origin server into Notion the same way the browser extension moves them, and the same way an RSS reader or a read-later app does. The copyright question doesn't arise, because nothing is being authored. It's a fetch-and-transform pipeline with a Notion-shaped output.
-
-That split is also why the service needs no changes when your database schema changes. It never touches properties.
-
-**Images are stored in Notion, not linked.** Every image is uploaded through Notion's file-import API so the clip survives the source site changing or disappearing. An image that genuinely can't be imported degrades to an external reference and the degradation is logged — it never silently vanishes.
+**Status:** in use.
 
 ---
 
-## How it works
+## The problem
+
+I wanted a Claude session to file articles into my Notion database. The session must create the page, set the status, set the areas, set the tags, set the relations, and set the dates. The session must then put the article on the page.
+
+Claude does the first part correctly. Claude cannot do the second part. There are two different reasons.
+
+**Reason 1. An assistant cannot give you the text of an article that a different person wrote.** If you ask a model for the full text of an article with a copyright, the model does not give you the text. The model gives you a summary, a paraphrase, or a part of the text.
+
+A summary is not a clip. A clip is the article. A summary is a different document about the same subject. If you open the page 6 months later, you find the summary and not the article.
+
+**Reason 2. The structure of the content is not correct.** When a model writes the content again, the content loses the parts that make an archive useful:
+
+- The headings become body text.
+- The tables become paragraphs.
+- The footnotes are not present, or the footnote numbers stay in the text with no footnote.
+- The code blocks lose the name of the language.
+- The images are links to the source website. If the source website changes, the links stop to operate.
+
+The Notion Web Clipper browser extension does all of this correctly. But it is a browser extension. It needs a person, a browser, and a click. An automatic workflow does not have these.
+
+## The solution
+
+The service divides the work into two parts:
+
+- **Claude makes the decisions.** Claude knows the subject of the article, the project for the article, and your method to file it. Claude creates the page and sets all of the properties.
+- **The service moves the data.** Claude gives the service a `page_id` and a `url`. The service reads the HTML, uses [Readability](https://github.com/mozilla/readability), and changes the HTML into Notion blocks.
+
+No model reads or writes the text of the article. The service does not write the text again, summarize it, or change it. The data goes from the source server into Notion. This is the same operation that the browser extension does.
+
+Because of this division, you do not change the service when you change the properties of your database. The service does not read or write properties.
+
+**The service stores the images in Notion.** It sends each image to the Notion file-import API. The clip continues to operate if the source website changes or stops to operate. If the service cannot import an image, it uses a link to the source image and writes a message in the log. The service does not remove the image.
+
+---
+
+## How the service operates
 
 ```
 Claude session (claude.ai)
         │
-        │  MCP connector over HTTPS
+        │  MCP connector, HTTPS
         ▼
-    mcp.ts ──────────── validates, checks the page's parent,
-        │               answers in ~1s. Dispatch, not completion.
-        │
+    mcp.ts ──────────── Checks the request. Checks the parent of the page.
+        │               Answers in approximately 1 second.
+        │               The answer means the work started.
+        │               It does not mean the work is complete.
         ▼
- clip-background.ts ─── up to 15 minutes
+ clip-background.ts ─── Maximum time: 15 minutes
         │
-        ├── fetch + Readability + paywall/bot-block detection
-        ├── DOM → Notion blocks (tables, code, footnotes, lead image)
-        ├── upload every image into Notion
-        └── append to the page in batches of 100
+        ├── Reads the URL. Uses Readability. Looks for a paywall or a bot-block.
+        ├── Changes the DOM into Notion blocks (tables, code, footnotes, lead image)
+        ├── Sends each image to Notion
+        └── Writes to the page in groups of 100 blocks
 ```
 
-The caller sees the result **in the page itself**, because the HTTP response can't carry it: a `⏳ Clipping in progress…` callout goes down first, and is either deleted on success or rewritten in place into a plain-language error.
+The HTTP response cannot contain the result, because the work continues after the response. Therefore the service writes the result on the page. First it writes a `⏳ Clipping in progress…` callout. Then one of two things happens:
 
-Two tools are exposed:
+- If the clip is successful, the service deletes the callout.
+- If the clip is not successful, the service changes the callout into an error message.
 
-- `clip_article(page_id, url, force?)` — starts the clip. **Returns on dispatch, not on completion.**
-- `clip_status(page_id)` — reports `CLIPPED` / `IN_PROGRESS` / `FAILED` / `NOT_STARTED` / `FOREIGN_CONTENT`
+The service supplies two tools:
 
-The full contract, including the rules that stop a caller reporting a clip that never happened, is in [TOOL-BRIEF.md](TOOL-BRIEF.md).
+- `clip_article(page_id, url, force?)` starts the clip. **The answer means the work started. It does not mean the work is complete.**
+- `clip_status(page_id)` gives one of these results: `CLIPPED`, `IN_PROGRESS`, `FAILED`, `NOT_STARTED`, or `FOREIGN_CONTENT`.
 
-### What it deliberately does not do
+[TOOL-BRIEF.md](TOOL-BRIEF.md) contains the full contract. It also contains the rules that prevent a caller from reporting a clip that did not occur.
 
-- Create pages, set properties, or categorise anything — that's the caller's job
-- Log into anything. Paywalled and login-walled articles fail visibly and tell you to use the Web Clipper
-- Render JavaScript. If the article only exists after a client-side render, this won't see it
-- Rewrite, summarise, or otherwise touch the article's words
+### What the service does not do
+
+- It does not create pages, set properties, or select a category. The caller does these.
+- It does not log in to a website. If an article has a paywall or a login wall, the clip fails. The error message tells you to use the Web Clipper.
+- It does not run JavaScript. If the article is only present after the browser runs JavaScript, the service cannot read it.
+- It does not write the words of the article again, summarize them, or change them.
 
 ---
 
-## Running your own
+## How to install your own copy
 
-### You will need
+### Requirements
 
-- A Notion account, and a database to clip into
-- A [Netlify](https://netlify.com) account (the free tier is enough for personal use)
-- Node 20+ (production runs 22)
+- A Notion account and a database
+- A [Netlify](https://netlify.com) account. The free level is sufficient for personal use.
+- Node 20 or later. Production uses Node 22.
 
-### 1. Create a Notion integration
+### 1. Make a Notion integration
 
-At [notion.so/my-integrations](https://www.notion.so/my-integrations), create an internal integration and copy its token. Then open your target database in Notion and share it with that integration — `••• → Connections → your integration`. Without this step every call returns 404, because the integration cannot see pages it hasn't been given.
+Go to [notion.so/my-integrations](https://www.notion.so/my-integrations). Make an internal integration. Copy the token.
+
+Open your database in Notion. Give the integration access to the database: `••• → Connections → your integration`.
+
+If you do not do this, all calls give a 404 error. The integration cannot see a page until you give it access.
 
 ### 2. Find your data source id
 
-Current Notion API versions distinguish a **database** from the **data sources** inside it, and this service wants the data source id. The quickest way:
+Notion has two different identifiers. A **database** contains one or more **data sources**. This service needs the data source id.
 
 ```bash
 curl -s https://api.notion.com/v1/databases/<DATABASE_ID> \
@@ -98,45 +115,47 @@ curl -s https://api.notion.com/v1/databases/<DATABASE_ID> \
   -H "Notion-Version: 2026-03-11" | jq '.data_sources'
 ```
 
-Your `<DATABASE_ID>` is the 32-hex string in the database URL. If you pass a database id where a data source id is wanted, the parent check fails on every page and every clip reports "that page isn't in the database" — a confusing failure with a one-line cause.
+`<DATABASE_ID>` is the 32-character hexadecimal string in the URL of the database.
 
-### 3. Deploy
+If you use a database id where the service needs a data source id, the parent check fails for each page. Each clip then reports that the page is not in the database.
+
+### 3. Install the service
 
 ```bash
 git clone https://github.com/warndt/clip2notion.git
 cd clip2notion
 npm install
-npm test          # no network or Notion access required
-netlify deploy    # or connect the repo in the Netlify UI
+npm test          # The tests do not use the network or Notion.
+netlify deploy    # Or connect the repository in the Netlify interface.
 ```
 
-Then set four environment variables in **Site configuration → Environment variables**:
+Set these environment variables in **Site configuration → Environment variables**:
 
-| Variable | Required | Notes |
+| Variable | Necessary | Description |
 |---|---|---|
-| `NOTION_TOKEN` | yes | Integration token from step 1. **Secret.** |
-| `CLIP_SHARED_SECRET` | yes | Generate one: `openssl rand -hex 32`. **Secret.** |
-| `RESOURCES_DATA_SOURCE_ID` | yes | From step 2. No default — see [Security](#security). |
-| `NOTION_API_VERSION` | no | Defaults to the pinned version. Re-check the live docs; this moves. |
-| `LEAD_IMAGE_MODE` | no | `insert` (default) · `detect` (logs what it would insert, writes nothing) · `off` |
+| `NOTION_TOKEN` | yes | The integration token from step 1. **Keep this secret.** |
+| `CLIP_SHARED_SECRET` | yes | Make one with `openssl rand -hex 32`. **Keep this secret.** |
+| `RESOURCES_DATA_SOURCE_ID` | yes | The value from step 2. There is no default value. Refer to [Security](#security). |
+| `NOTION_API_VERSION` | no | The default value is the current version. Notion changes this value. Read the Notion documentation. |
+| `LEAD_IMAGE_MODE` | no | `insert` (default), `detect` (writes a log message but does not change the page), or `off` |
 
-⚠️ A Netlify environment change does **not** reach live functions until you redeploy.
+⚠️ If you change an environment variable in Netlify, the change does not go to the functions until you deploy again.
 
-Check it worked: `GET /.netlify/functions/health` reports which deploy is answering and whether each variable is present, without echoing any value. It returns `503` if a required one is missing.
+To make sure that the installation is correct, send a GET request to `/.netlify/functions/health`. The response tells you which deploy operates and if each variable is present. The response does not contain the value of a variable. The response code is 503 if a necessary variable is not present.
 
 ### 4. Connect Claude
 
-Add an MCP connector pointing at:
+Add an MCP connector with this URL:
 
 ```
 https://<your-site>.netlify.app/mcp/<CLIP_SHARED_SECRET>
 ```
 
-The secret travels as a **path segment**, not a query string — `?token=` is accepted by the server but query strings are stripped somewhere in claude.ai's connector plumbing, and the connector attaches with no tools rather than failing loudly.
+The secret is a part of the path. Do not use a query string. The server accepts `?token=`, but claude.ai removes query strings. If this occurs, the connector connects but supplies no tools.
 
-The connector is only half of it. The calling session also needs a system prompt telling it to create the page first, call `clip_article`, and confirm with `clip_status` before reporting anything. [TOOL-BRIEF.md](TOOL-BRIEF.md) is written to be pasted into a Notion page the session can read, and summarised into the prompt.
+The connector is only one part. The calling session also needs a system prompt. The prompt must tell the session to create the page first, then call `clip_article`, then call `clip_status` before it tells the user the result. You can copy [TOOL-BRIEF.md](TOOL-BRIEF.md) into a Notion page that the session reads.
 
-### 5. Test it from a terminal first
+### 5. Do a test from a terminal
 
 ```bash
 curl -X POST https://<your-site>.netlify.app/.netlify/functions/clip \
@@ -145,61 +164,79 @@ curl -X POST https://<your-site>.netlify.app/.netlify/functions/clip \
   -d '{"page_id":"<a page in your database>","url":"https://example.com/article"}'
 ```
 
-This endpoint exists for exactly this: it validates synchronously and returns a real status code, so a bad secret is a `401` rather than a silent nothing.
+This endpoint checks the request and gives a response code. If the secret is not correct, the response code is 401. This makes a test easier.
 
 ---
 
-## Adapting it
+## How to change the service for your use
 
-The service is opinionated about *mechanism* and almost entirely unopinionated about *your setup*. What you're likely to want to change:
+The service has strong opinions about its method. It has almost no opinions about your Notion setup.
 
-**A different database, or a different schema.** Nothing to change. The service sets no properties and reads no schema — it appends blocks to a page id you give it, after checking that page lives in the data source you configured. Rename your columns freely.
+**A different database, or different properties.** You do not change anything. The service does not read or write properties, and it does not read the schema. It writes blocks to the page id that you give it, after it makes sure that the page is in your data source. You can change the names of your columns.
 
-**Somewhere other than Netlify.** The platform-specific parts are contained: `netlify/functions/` holds the three entry points and `netlify.toml` the routing. Everything in `src/` is plain TypeScript with no platform imports, by rule. The one thing you would need to replace is the background-function mechanism — the split exists because Netlify kills synchronous functions at 10 seconds, and a long article with images takes minutes. Any platform with a queue or a longer-lived worker will do.
+**A different platform, not Netlify.** The parts that are specific to Netlify are in two locations: `netlify/functions/` has the three entry points, and `netlify.toml` has the configuration. All of the code in `src/` is TypeScript with no platform imports. This is a rule of the project.
 
-**Not Claude.** The MCP connector in `mcp.ts` is one entry point among three. `clip.ts` is an ordinary authenticated HTTP endpoint and works from anything that can POST — a shortcut, a bookmarklet backend, a cron job over a list of URLs.
+You must replace the background function. This is necessary because Netlify stops a synchronous function after 10 seconds, and a long article with images needs some minutes. Any platform with a queue or a long-life worker is sufficient.
 
-**Tuning the conversion.** Every threshold lives in `TUNABLES` in [src/config.ts](src/config.ts) and every one is overridable by an environment variable of the same name, so you can adjust a bad default from the Netlify UI without a deploy. The ones people actually reach for: `MIN_ARTICLE_CHARS`, `LEAD_IMAGE_MIN_DIMENSION`, `MAX_IMAGES`, `LEAD_IMAGE_MODE`.
+**A different caller, not Claude.** The MCP connector in `mcp.ts` is one of three entry points. `clip.ts` is a usual HTTP endpoint with authentication. Any client that can send a POST request can use it: a shortcut, a bookmarklet, or a scheduled job that reads a list of URLs.
 
-**Sites that extract badly.** `extract.ts` cleans the DOM before Readability sees it — there are already targeted fixes for Substack's heading widgets and for footnote bodies that Readability discards. That function is the place to add your own.
+**Different conversion values.** All of the values are in `TUNABLES` in [src/config.ts](src/config.ts). You can change each value with an environment variable that has the same name. Therefore you can correct an incorrect value in the Netlify interface without a deploy. Users change these values most frequently: `MIN_ARTICLE_CHARS`, `LEAD_IMAGE_MIN_DIMENSION`, `MAX_IMAGES`, and `LEAD_IMAGE_MODE`.
 
-Before changing anything, read [CLAUDE.md](CLAUDE.md). It documents the constraints that fail *silently in production rather than loudly in testing* — the 10-second ceiling and what blows through it, why jsdom must stay out of the synchronous functions, Notion's 2,000-character rich-text cap, and why a background function must almost never throw.
+**A website that Readability reads incorrectly.** `extract.ts` cleans the DOM before Readability reads it. It contains corrections for the heading widgets on Substack and for footnotes that Readability removes. Add your corrections in the same function.
+
+Read [CLAUDE.md](CLAUDE.md) before you change the code. It lists the limits that cause a failure in production but not in a test. These include the 10-second limit, the rule to keep jsdom out of the synchronous functions, the Notion limit of 2,000 characters for each rich-text object, and the rule that a background function must almost never throw an error.
 
 ---
 
 ## Security
 
-The threat model is small on purpose: one user, one shared secret, a service that fetches arbitrary URLs on request.
+The service has one user and one shared secret. It reads a URL that the caller supplies.
 
-- **The shared secret is compared in constant time**, on every entry point, hashed first so length doesn't leak.
-- **Every write target's parent is checked** against `RESOURCES_DATA_SOURCE_ID` before anything is appended. This is the check that makes a leaked secret survivable: it can't be used to append to arbitrary pages in your workspace. That variable is required and has no default, deliberately — a default here would be one specific person's database.
-- **SSRF guard on the fetch target**: `http`/`https` only, and loopback, private, link-local, CGNAT, multicast and reserved ranges are refused, including their IPv4-mapped IPv6 forms. Re-checked on **every redirect hop**, not just the URL you passed in.
-- ⚠️ **The guard does not resolve DNS.** A hostname that resolves to a private address still gets through. This is a known, documented limit rather than an oversight — closing it needs resolution plus a connect-time socket check, redone per redirect to defeat rebinding. If you deploy this somewhere with a reachable metadata service, close it.
-- ⚠️ **There is no rate limiting.** The secret is the only thing between the internet and the endpoints.
-- ⚠️ **The secret is in the connector URL**, so it can appear in intermediary logs. The service redacts it from its own. Rotating it means updating Netlify, redeploying, *and* the connector URL.
+There are two possible attacks: to make the service read a URL that it must not read, and to make the service write to a page that it must not write to.
 
-Found something? See [SECURITY.md](SECURITY.md). Please don't open a public issue for a vulnerability.
+### Protection
+
+- **Authentication on each entry point.** The three functions `mcp`, `clip`, and `clip-background` each check the shared secret. `clip-background` has a public URL, so it does not trust the function that called it.
+- **Constant-time comparison of the secret.** The service hashes the secret first, so the length of the secret does not change the time.
+- **A check of the parent page.** Before the service writes, it makes sure that the parent of the target page is the data source in `RESOURCES_DATA_SOURCE_ID`. If a person gets your secret, that person still cannot write to other pages in your workspace. The variable is necessary and has no default value.
+- **An SSRF check of the target URL.** The service accepts only the `http` and `https` schemes. It refuses loopback, private, link-local, carrier-grade NAT, multicast, and reserved addresses. It also refuses the IPv4-mapped IPv6 form of these addresses. The service does this check again after **each redirect**.
+- **The service does not write a secret in a log or a response.** It removes the token from the log messages. `/health` tells you if a variable is present, but not its value.
+
+### Known limits
+
+These are decisions for a service with one user. If these limits are a problem for your installation, correct them.
+
+- **The service does not resolve DNS.** If a host name resolves to a private address, the SSRF check does not stop it. To correct this, you must resolve the name and then check the socket, after each redirect. This prevents a DNS rebinding attack.
+- **There is no rate limit.** The shared secret is the only protection.
+- **The secret is in the URL of the connector.** Other systems can write the URL in their logs. To change the secret, you must change the environment variable, deploy again, and change the URL of the connector.
+- **`/health` has no authentication.** It gives the deploy id, the name of the site, and which variables are present. It does not give a value. This is intentional: it answers the question "which version operates now?" with one request.
+- **CORS is `*` on the MCP endpoint**, because MCP clients need this. Authentication uses a token in the URL and not a cookie. Therefore a web page in a browser cannot use the authentication of the user.
+- **The service reads HTML from a website that you do not control.** A malicious page can stop one background function. This is a denial-of-service risk for that one clip.
+
+To report a security problem, refer to [SECURITY.md](SECURITY.md). Do not write a public issue for a security problem.
 
 ---
 
-## Project documentation
+## Documentation
 
-| File | What it's for |
+| File | Contents |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | The constraints, in detail. Read before changing anything |
-| [TOOL-BRIEF.md](TOOL-BRIEF.md) | The caller-facing contract — tools, status tokens, troubleshooting |
-| [ROADMAP.md](ROADMAP.md) | What shipped, what's left, and a backlog of real failures with their root causes |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Why pull requests aren't accepted, and what to do instead |
+| [CLAUDE.md](CLAUDE.md) | The limits of the service. Read this before you change the code. |
+| [TOOL-BRIEF.md](TOOL-BRIEF.md) | The contract for the caller: tools, status values, and problem correction |
+| [ROADMAP.md](ROADMAP.md) | Completed work, remaining work, and a list of failures with their causes |
+| [SECURITY.md](SECURITY.md) | How to report a security problem |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Why the project does not accept pull requests, and what to do instead |
 
-`ROADMAP.md` is worth a look even if you never run this: it records the failures that made it, most of which were invisible from the service's side — images that imported as 1×1 spacers, headings silently scored as boilerplate, a status endpoint that confidently reported a clip that never happened.
+`ROADMAP.md` is useful even if you do not install the service. It records the failures that changed the code. The service did not detect most of these failures. Examples: images that were 1×1 spacers, headings that Readability removed, and a status function that reported a clip that did not occur.
 
 ---
 
-## Contributing
+## Contributions
 
-This is a personal tool published in case it's useful. **Pull requests are not accepted** — see [CONTRIBUTING.md](CONTRIBUTING.md) for the reasoning and for what to do instead. Issues and ideas are welcome, and forking is actively encouraged.
+This is a personal tool. I made it public because it can be useful to other persons.
+
+**The project does not accept pull requests.** [CONTRIBUTING.md](CONTRIBUTING.md) gives the reason and tells you what to do instead. You can write an issue. You can also make a fork.
 
 ## License
 
-[MIT](LICENSE). Do what you like with it.
+[MIT](LICENSE).
