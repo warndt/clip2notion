@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in the service behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For an article that clipped badly, use the **A site clips badly** template instead.
+
+        For a security problem, do **not** open an issue — see
+        [SECURITY.md](https://github.com/warndt/clip2notion/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you called, what happened, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The steps, or the request you made. Redact your secret and page ids if you paste a call.
+    validations:
+      required: true
+
+  - type: textarea
+    id: health
+    attributes:
+      label: Output of /health
+      description: >
+        `GET /.netlify/functions/health` on your deployment. It reports which
+        deploy is answering and whether each variable is set, and never echoes a
+        value — so it is safe to paste as-is.
+      render: json
+
+  - type: input
+    id: deployment
+    attributes:
+      label: Where it's running
+      description: Netlify, or something else you've adapted it to.
+      placeholder: Netlify, Node 22

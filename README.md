@@ -1,5 +1,8 @@
 # clip2notion
 
+[![tests](https://github.com/warndt/clip2notion/actions/workflows/test.yml/badge.svg)](https://github.com/warndt/clip2notion/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Fetches a web article and writes its full content — structure intact, images stored inside Notion rather than hotlinked — into a Notion page that already exists.
 
 It is a small, deliberately narrow service: roughly 2,000 lines, two dependencies, one job.
