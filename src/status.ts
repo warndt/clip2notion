@@ -45,6 +45,16 @@ function createdTime(block: NotionBlockRecord): string | undefined {
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 }
 
+/** The most recent `created_time` in a set of blocks, if any of them carry one. */
+function newestCreatedTime(blocks: NotionBlockRecord[]): string | undefined {
+  let newest: string | undefined;
+  for (const block of blocks) {
+    const at = createdTime(block);
+    if (at && (newest === undefined || at > newest)) newest = at;
+  }
+  return newest;
+}
+
 /**
  * "2026-08-15 00:31 UTC (2 minutes ago)" — absolute so it can be checked
  * against a Notion page, relative because the question being asked is almost
@@ -140,6 +150,17 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
     return {
       state: "in_progress",
       detail: `Page holds ${substantive.length} blocks but no clip header — a clip is probably mid-write.`,
+      /**
+       * The newest block, standing in for the marker this branch does not have.
+       *
+       * Without it the caller loses the fifteen-minute bound and cannot ever
+       * declare the run dead: a Web Clipper page reported `IN_PROGRESS` to ten
+       * consecutive calls with no time attached, and there was no answer that
+       * would have let the caller stop. Newest rather than oldest because the
+       * question is "did anything land here recently", not "when did this page
+       * begin" — a live run has a block seconds old, a finished save does not.
+       */
+      markerCreatedAt: newestCreatedTime(substantive),
     };
   }
 
