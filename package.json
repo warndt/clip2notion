@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Fetches a web article and writes its full content into an existing Notion page.",
   "license": "MIT",
-  "author": "Wil Arndt",
+  "author": "Wil Arndt <https://wilarndt.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/warndt/clip2notion.git"
