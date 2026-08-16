@@ -27,7 +27,7 @@ All other requirements can change. These five requirements fail without a visibl
 > - `clip_status` reports **when** the service wrote a clip. `/health` reports which version operates. Therefore you can answer two questions: "did the clip operate?" and "is the correction in production?" (M5).
 > - The service converts **images inside links** correctly. Before this, it removed all of these images and did not report a problem (M6).
 >
-> The deploy is `d225195`.
+> The deploy is the commit "fix: images wrapped in links were never images at all" (2026-08-14). This document gives commit subjects and not commit hashes, because the project rewrote its history and each hash changed.
 >
 > All items below are history, or optional work. Real use is a better method to set the priority of the optional work than planning is.
 
@@ -196,7 +196,7 @@ Tested against live HTML, read on 2026-08-14:
 
 ### Detect mode in production: the first four live clips (2026-08-14)
 
-The deploy was `b513ae3`. Each result was correct. **The service would have inserted nothing on any of the four articles**, because each article already had its main image inside the body.
+The deploy was the commit that added the lead-image detect mode (2026-08-14). Each result was correct. **The service would have inserted nothing on any of the four articles**, because each article already had its main image inside the body.
 
 | Clip | Log message | Compared with the source |
 |---|---|---|
