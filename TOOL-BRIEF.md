@@ -219,7 +219,7 @@ Rotating the secret means updating **three** places: the Netlify environment var
 
 If tools don't appear after a change, disconnect and re-add the connector rather than editing it — the settings page can show a stale URL.
 
-**Target verification.** The service only writes to pages whose parent is data source `<your-data-source-id>` (WDB | Resources). `RESOURCES_DATA_SOURCE_ID` is unset in Netlify, so the code default applies and matches the live data source. A leaked token therefore cannot append to arbitrary pages in the workspace.
+**Target verification.** The service only writes to pages whose parent is the data source named in `RESOURCES_DATA_SOURCE_ID`, which is required and has no default. A leaked token therefore cannot append to arbitrary pages in the workspace.
 
 **Checking a clip by hand.** Images genuinely stored in Notion serve from an `amazonaws.com` URL rather than the source site's domain — that is the check that matters most, and the only reliable way to tell a stored image from a hotlinked one. In the Netlify function logs, `image_degraded` and `image_import_failed` mark images that fell back to external references; a cluster of them means something systematic about that site. If a long illustrated article approaches the 15-minute background-function ceiling, `IMAGE_CONCURRENCY` and the image poll intervals are the tunables to reach for.
 

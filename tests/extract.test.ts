@@ -54,6 +54,44 @@ test("localhost and private ranges are refused", () => {
   }
 });
 
+test("addresses that only look public are refused", () => {
+  // Every one of these reached the fetch before 2026-08-16. The IPv4-mapped
+  // IPv6 forms are the ones that mattered: `new URL()` rewrites
+  // `[::ffff:169.254.169.254]` to `[::ffff:a9fe:a9fe]`, which matched no check
+  // in the guard — not the `::1` literal, not the `fc`/`fd` prefixes, not the
+  // dotted-quad regex — so cloud metadata was one request away.
+  const refused = [
+    "http://[::ffff:127.0.0.1]/",           // loopback, IPv4-mapped
+    "http://[::ffff:169.254.169.254]/",     // cloud metadata, IPv4-mapped
+    "http://[0:0:0:0:0:ffff:7f00:1]/",      // the same, written out longhand
+    "http://LOCALHOST./",                   // trailing dot defeats a Set lookup
+    "http://127.0.0.1./",
+    "http://100.64.0.1/",                   // carrier-grade NAT
+    "http://192.0.0.192/",                  // IETF protocol assignments
+    "http://198.18.0.1/",                   // benchmarking range
+    "http://224.0.0.1/",                    // multicast
+    "http://[::]/",                          // unspecified
+  ];
+
+  for (const url of refused) {
+    assert.equal(codeOf(() => assertSafeUrl(url)), "INVALID_REQUEST", `should refuse ${url}`);
+  }
+});
+
+test("addresses adjacent to the blocked ranges are still allowed", () => {
+  // The guard has to stay narrow: 172.32 is public even though 172.16-31 is not,
+  // and 100.63 is public even though 100.64-127 is not. A guard that swallows
+  // real articles gets switched off.
+  const allowed = [
+    "https://172.32.0.1/", "https://100.63.0.1/", "https://192.1.0.1/",
+    "https://8.8.8.8/", "https://[2606:4700::1111]/", "http://example.com/a",
+  ];
+
+  for (const url of allowed) {
+    assert.equal(assertSafeUrl(url).protocol.startsWith("http"), true, `should allow ${url}`);
+  }
+});
+
 test("non-http protocols are refused", () => {
   assert.equal(codeOf(() => assertSafeUrl("file:///etc/passwd")), "INVALID_REQUEST");
   assert.equal(codeOf(() => assertSafeUrl("ftp://example.com/x")), "INVALID_REQUEST");

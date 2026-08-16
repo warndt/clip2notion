@@ -12,8 +12,6 @@ export interface Config {
   notionVersion: string;
 }
 
-const DEFAULT_DATA_SOURCE_ID = "<your-data-source-id>";
-
 /** Checked against the live docs on 2026-08-11. This value moves — re-check it. */
 const DEFAULT_NOTION_VERSION = "2026-03-11";
 
@@ -34,7 +32,12 @@ export function loadConfig(): Config {
   return {
     notionToken: requireEnv("NOTION_TOKEN"),
     sharedSecret: requireEnv("CLIP_SHARED_SECRET"),
-    dataSourceId: process.env.RESOURCES_DATA_SOURCE_ID || DEFAULT_DATA_SOURCE_ID,
+    // Required, with no default. It used to default to the author's own data
+    // source id, which is wrong in both directions once anyone else runs this:
+    // it publishes one workspace's internal id, and it hands a fork a default
+    // that silently points somewhere the fork cannot write. Missing now fails
+    // loudly at config load rather than as a puzzling INVALID_TARGET per clip.
+    dataSourceId: requireEnv("RESOURCES_DATA_SOURCE_ID"),
     notionVersion: process.env.NOTION_API_VERSION || DEFAULT_NOTION_VERSION,
   };
 }
