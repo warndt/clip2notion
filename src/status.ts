@@ -189,26 +189,53 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
    * outcome of the run that just failed. Both stamps must be present; when they
    * are not, nothing can be ordered and the safe reading is failure.
    */
-  const failedAt = failure ? createdTime(failure) : undefined;
-  const headerAt = header ? createdTime(header) : undefined;
-  const wroteNothing = failure
-    ? !blockPlainText(failure).includes(PARTIAL_WRITE_MARKER)
-    : false;
-  const superseded = Boolean(wroteNothing && failedAt && headerAt && headerAt >= failedAt);
-
-  if (failure && !superseded) {
-    return {
-      state: "failed",
-      detail: blockPlainText(failure),
-      markerCreatedAt: failedAt,
-      markerClipId: clipIdIn(blockPlainText(failure)),
-    };
-  }
-
   const running = newestMatch(
     children,
     (block) => block.type === "callout" && blockPlainText(block).includes(STATUS_MARKER),
   );
+
+  const failedAt = failure ? createdTime(failure) : undefined;
+  const headerAt = header ? createdTime(header) : undefined;
+  const failureClipId = failure ? clipIdIn(blockPlainText(failure)) : undefined;
+  const wroteNothing = failure
+    ? !blockPlainText(failure).includes(PARTIAL_WRITE_MARKER)
+    : false;
+  const supersededByClip = Boolean(wroteNothing && failedAt && headerAt && headerAt >= failedAt);
+
+  /**
+   * A newer run is under way, so the old error is not the current state.
+   *
+   * A run cannot leave both a progress callout and an error callout: it writes
+   * the progress callout first and `reportFailure` converts *that block* in
+   * place. So two callouts carrying different ids are necessarily two different
+   * runs, and the one still saying "in progress" is the live one.
+   *
+   * Without this, every poll during a re-clip returned the previous run's error
+   * — the whole window between dispatch and the first content landing, which is
+   * precisely when a caller polls. Measured live on 2026-08-17: the retry was
+   * dispatched at 00:27:57, its header landed at 00:28, and the `clip_status`
+   * call in between reported FAILED quoting the run before it.
+   *
+   * `wroteNothing` is deliberately not required here. This claims no success —
+   * it says work is happening — so a partial write from an earlier run costs
+   * nothing, and once the new run settles the header rules above apply again.
+   */
+  const supersededByRun = Boolean(
+    running &&
+      failure &&
+      failureClipId &&
+      clipIdIn(blockPlainText(running)) !== undefined &&
+      clipIdIn(blockPlainText(running)) !== failureClipId,
+  );
+
+  if (failure && !supersededByClip && !supersededByRun) {
+    return {
+      state: "failed",
+      detail: blockPlainText(failure),
+      markerCreatedAt: failedAt,
+      markerClipId: failureClipId,
+    };
+  }
   if (running) {
     return {
       state: "in_progress",
@@ -224,7 +251,7 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
       detail: blockPlainText(header),
       sourceUrl: blockFirstLink(header) ?? undefined,
       markerCreatedAt: headerAt,
-      staleError: superseded && failure ? blockPlainText(failure) : undefined,
+      staleError: supersededByClip && failure ? blockPlainText(failure) : undefined,
     };
   }
 
