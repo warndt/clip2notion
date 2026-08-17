@@ -286,7 +286,32 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 Write new work here. Do not correct it immediately.
 
-**🟡 An old error callout hides a clip that operated. A page can report `FAILED` permanently although it holds a complete article (found and corrected 2026-08-16). Wil must review it.**
+**⬜ A status rule is not tested until a test reads it DURING a run (recorded 2026-08-17).**
+
+Three defects came from one blind spot, and each of the three was found by a live test and not by the test suite. Each test in the suite gave `deriveClipStatus` a page in a **settled** condition: a finished clip, or a failure, with no run in operation. But the caller reads the status **while a run operates**. That is the purpose of `clip_status`. Therefore the condition that the suite never made was the condition that the tool is in most of the time.
+
+The three defects:
+
+1. An old error callout hid a **complete** clip. Found by a live test.
+2. The first correction compared only times, and two runs seven seconds apart recorded the same minute. Found by a live test.
+3. The second correction examined only a **complete** clip, so each read **during** the new run continued to give the old error. Found by a live test.
+
+**The rule for new work: when you add or change a branch in `deriveClipStatus`, write the test for the page as it is in the middle of a run.** The page then has a progress callout, and frequently also a marker from an earlier run. A test with a settled page does not test the state that the caller reads.
+
+An audit of the branches on 2026-08-17 found **two more conditions with no test**, and the code was correct in both. They now have tests:
+
+- A run that operates, on a page that holds content from the Web Clipper. This is the documented recovery path, from end to end: a clip fails, the message tells the user to use the Web Clipper, the user does this, and later the user asks for a clip again. `foreign_content` would tell the caller "nothing operates, do not read this again" about a run that operates.
+- A run that operates, with an old error callout and with its own header already written. This is the condition that each usual re-clip passes through.
+
+**⬜ `foreign_content` cannot carry a run identity, and this is correct (examined 2026-08-17).**
+
+Examined after the error-callout work, because that correction used the `clip_id` in a marker and `foreign_content` has no marker. **There is nothing to correct.** The state is reached only when the page has no error callout, no progress callout, and no clip header. Therefore there is no marker of this service on the page, and no `clip_id` can exist. The absence of an identity is the definition of the state and is not an omission.
+
+One characteristic to know, which is not a defect. `markerCreatedAt` for this state is the **newest block on the page**, because there is no marker to read a time from. Therefore a person who writes a note on such a page moves the `Last change:` time, and the page looks as if something occurred recently. This has no effect, because the response says clearly that nothing operates and that the caller must not read the page again. The time is a report for a person and not a value for a decision. Do not make a decision from it later.
+
+**✅ An old error callout hides a clip that operated. A page can report `FAILED` permanently although it holds a complete article. Corrected and approved (2026-08-16).**
+
+**Confirmed by the caller on 2026-08-17, in the difficult condition.** The failure and the clip that followed it were **seven seconds apart**, and both blocks recorded `00:36`. Therefore the times were equal and could not put the two runs in order. The page gave `CLIPPED` with the note about the old callout. A result with two **different** minutes would have been a weaker test, because the first version of the correction would also have passed it.
 
 **The correction, deployed on 2026-08-16.** Three parts, and none of them deletes a block.
 

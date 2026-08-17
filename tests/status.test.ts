@@ -380,6 +380,47 @@ test("a run in flight outranks even a partial-write error from another run", () 
   assert.equal(status.state, "in_progress");
 });
 
+test("a run in flight outranks unattributed content on the page", () => {
+  // The documented recovery path, running end to end: a clip fails BLOCKED, the
+  // error tells the user to use the Web Clipper, they do, and later they ask for
+  // a clip again. While that run works, the page holds Web Clipper content and
+  // our progress callout. Reporting foreign_content there would tell the caller
+  // "nothing is running, do NOT poll this" about a run that is running.
+  const clipperContent = Array.from({ length: 8 }, (_, i) =>
+    record(
+      {
+        object: "block",
+        type: "paragraph",
+        paragraph: { rich_text: [{ type: "text", text: { content: `clipper para ${i}` } }] },
+      },
+      `wc-${i}`,
+    ),
+  );
+
+  const status = deriveClipStatus([...clipperContent, record(statusCallout("clp_live"), "live")]);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerClipId, "clp_live");
+});
+
+test("a run in flight outranks an old error even once its header has landed", () => {
+  // The shape a real re-clip passes through: the previous run's error is still
+  // on the page, this run's progress callout is up, and its header has just
+  // been written. Content is landing but the run is not finished, so neither
+  // the old error nor a premature CLIPPED is the right answer.
+  const oldFailure = record(errorCallout("Blocked by the site.", "clp_first"), "old-fail");
+
+  const status = deriveClipStatus([
+    stamped(oldFailure, "2026-08-17T00:27:00.000Z"),
+    stamped(record(statusCallout("clp_second"), "live"), "2026-08-17T00:27:00.000Z"),
+    stamped(header, "2026-08-17T00:28:00.000Z"),
+    paragraph,
+  ]);
+
+  assert.equal(status.state, "in_progress", "neither the old error nor an early CLIPPED");
+  assert.equal(status.markerClipId, "clp_second");
+});
+
 test("a clip older than the error is not reported as that run's outcome", () => {
   // A page already holding a finished clip, then a failed attempt at a second
   // URL that wrote nothing. The article is real but it is not what the caller
