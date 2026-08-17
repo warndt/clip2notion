@@ -19,7 +19,7 @@ import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
   clipHeader, collectImageBlocks, errorCallout, footnoteBlocks, htmlToBlocks, leadImageBlock,
-  statusCallout, ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER, type Block,
+  statusCallout, ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER, type Block,
 } from "./blocks";
 import { normalizeImageUrl, type LeadImageResult } from "./lead-image";
 import {
@@ -279,8 +279,10 @@ async function reportFailure(
 ): Promise<void> {
   if (!statusBlockId) return;
 
+  // The marker is load-bearing, not decoration: `deriveClipStatus` reads it back
+  // to decide whether this error can possibly describe an article on the page.
   const message = contentWritten
-    ? `${error.userMessage} Part of the article was already written — delete the clipped blocks and re-run to retry.`
+    ? `${error.userMessage} ${PARTIAL_WRITE_MARKER} — delete the clipped blocks and re-run to retry.`
     : error.userMessage;
 
   const callout = errorCallout(message, clipId);

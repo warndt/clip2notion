@@ -39,8 +39,8 @@ export interface Block {
 // Markers live in their own dependency-free module so that reading a page's
 // state never pulls in this file, and with it jsdom. Imported for use below and
 // re-exported, because this is where the blocks that carry them are built.
-import { ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER } from "./markers";
-export { ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER };
+import { ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER } from "./markers";
+export { ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER };
 
 interface Ctx {
   baseUrl: string;
