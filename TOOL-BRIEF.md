@@ -123,6 +123,8 @@ A failure response also sets `isError`. **Do not depend on this flag.** It does 
 
 The service now makes this decision for you. **A failure that wrote no content cannot describe an article on the page.** Therefore, if the error callout is from a run that wrote nothing, and there is a clip that is not older than it, the page gives `CLIPPED`. The response then contains a `⚠️ NOTE` that gives the text of the old error and says that it does not describe this clip. Tell the user that the callout is old and that a person can delete it. **Do not give it as a failure.**
 
+**A run that operates also has a higher rank than an earlier error.** While a new clip writes, the page gives `IN_PROGRESS` and not the error of the run before it. A run writes its progress callout first, and a failure changes that same block. Therefore a page that has a progress callout **and** an error callout with a different `clip_id` has two different runs on it, and the run that says "in progress" is the current one.
+
 The service continues to give `FAILED` in each of these three conditions, because in each one the error can be about the article that you see:
 
 - The error says `Part of the article was already written`. That run wrote content, so the content below it can be its incomplete article.

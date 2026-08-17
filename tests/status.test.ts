@@ -347,6 +347,39 @@ test("a partial write never yields to a later header either", () => {
   assert.equal(status.state, "failed", "content written by the failed run keeps the error on top");
 });
 
+test("a newer run in flight outranks an earlier run's error", () => {
+  // The live failure of 2026-08-17. The retry was dispatched at 00:27:57 and
+  // its first content landed at 00:28, and the clip_status call in between
+  // reported FAILED quoting the run before it. That window — dispatch to first
+  // write — is exactly when a caller polls, so it was hit on the first try.
+  //
+  // A run cannot leave both callouts: it writes the progress callout and
+  // reportFailure converts that same block. Two different ids means two runs.
+  const oldFailure = record(errorCallout("Blocked by the site.", "clp_first"), "old-fail");
+  const myRun = record(statusCallout("clp_second"), "my-progress");
+
+  const status = deriveClipStatus([
+    stamped(oldFailure, "2026-08-17T00:27:00.000Z"),
+    stamped(myRun, "2026-08-17T00:27:00.000Z"),
+  ]);
+
+  assert.equal(status.state, "in_progress");
+  assert.equal(status.markerClipId, "clp_second");
+});
+
+test("a run in flight outranks even a partial-write error from another run", () => {
+  // in_progress claims no success, so an earlier partial write costs nothing
+  // here. Once this run settles, the header rules decide it again.
+  const myRun = record(statusCallout("clp_second"), "my-progress");
+
+  const status = deriveClipStatus([
+    stamped(partialFailure, "2026-08-17T00:27:00.000Z"),
+    stamped(myRun, "2026-08-17T00:27:00.000Z"),
+  ]);
+
+  assert.equal(status.state, "in_progress");
+});
+
 test("a clip older than the error is not reported as that run's outcome", () => {
   // A page already holding a finished clip, then a failed attempt at a second
   // URL that wrote nothing. The article is real but it is not what the caller
