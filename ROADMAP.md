@@ -286,6 +286,22 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 Write new work here. Do not correct it immediately.
 
+**⬜ Three documents say that `/health` reports the deployed commit. It does not (found 2026-08-17).**
+
+`health.ts` reads `commit: process.env.COMMIT_REF ?? null`. `COMMIT_REF` is a **build** variable and is not present when a function operates. Therefore the field is always `null`, unless a person sets `COMMIT_REF` by hand as a true environment variable in the Netlify interface. The endpoint says this itself, in its `note` field. The doc comment in `health.ts` is correct and gives the measurement. The other documents are not correct.
+
+**`deploy_id` is the field that identifies the build.** Compare it with the deploy in the Netlify interface, or use `netlify api getDeploy --data '{"deploy_id":"..."}'`. This was used four times on 2026-08-17 and answered the question each time.
+
+The locations to correct:
+
+- `CLAUDE.md`, the **Check after a deploy** section: "It reports the **deployed commit**". This is the most important location, because it tells the next session to use a field that is always empty.
+- `TOOL-BRIEF.md` section 0, **If the service does not operate**: "It answers with the deployed commit". There is a copy of this document in Notion. ⚠️ A person must update the copy.
+- `ROADMAP.md` M5: "reports the deployed commit". This is a record of history, so annotate it. Do not write it again.
+
+`README.md` says "which deploy operates", which is correct. Do not change it.
+
+**Why this is more than an incorrect word.** The purpose of the endpoint is to answer "is the correction in production?". A field that always reads `null` does not answer it, and `null` looks the same as "the deploy did not operate". A person then reads the build log, which is the work that this endpoint exists to remove. The cost is one hour at the exact time when something does not operate.
+
 **⬜ A status rule is not tested until a test reads it DURING a run (recorded 2026-08-17).**
 
 Three defects came from one blind spot, and each of the three was found by a live test and not by the test suite. Each test in the suite gave `deriveClipStatus` a page in a **settled** condition: a finished clip, or a failure, with no run in operation. But the caller reads the status **while a run operates**. That is the purpose of `clip_status`. Therefore the condition that the suite never made was the condition that the tool is in most of the time.
