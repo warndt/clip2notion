@@ -121,7 +121,15 @@ A failure response also sets `isError`. **Do not depend on this flag.** It does 
 
 **An error callout stays on the page. Therefore read the time on a `FAILED` result.** Only a clip with `force` deletes an error callout. A page can hold an error from an earlier run and a correct article from a later run. If the time of the error is older than the clip that you asked for, the error is from a different run and says nothing about your run.
 
-The service now makes this decision for you: a clip that the service wrote **after** an error callout supersedes that callout, and the page gives `CLIPPED`. The response then contains a `⚠️ NOTE` that gives the text of the old error and says that it does not describe this clip. Tell the user that the callout is old and that a person can delete it. **Do not give it as a failure.** Two times inside the same minute cannot be compared, so the service gives `FAILED` in that condition. It never reports success when it cannot be certain.
+The service now makes this decision for you. **A failure that wrote no content cannot describe an article on the page.** Therefore, if the error callout is from a run that wrote nothing, and there is a clip that is not older than it, the page gives `CLIPPED`. The response then contains a `⚠️ NOTE` that gives the text of the old error and says that it does not describe this clip. Tell the user that the callout is old and that a person can delete it. **Do not give it as a failure.**
+
+The service continues to give `FAILED` in each of these three conditions, because in each one the error can be about the article that you see:
+
+- The error says `Part of the article was already written`. That run wrote content, so the content below it can be its incomplete article.
+- The clip is **older** than the error. The article is real, but it is from an earlier run and it is not the result of the run that failed.
+- One of the two times is not present, so the service cannot put them in order.
+
+A time is not sufficient for this decision, and the service does not use it alone. Notion records a time to the minute, and a website that refuses a request fails in approximately one second. Therefore a failure and the clip that follows it are frequently inside the same minute.
 
 **`FOREIGN_CONTENT` is not a failure and is not a run.** It means that the page has content and that none of the content has a marker from this service. The most frequent cause is a Web Clipper save that a person made after this service failed for that article. Other causes are notes from the user, or a clip that a person deleted partially. The service cannot tell which cause applies, and it says this instead of a guess.
 

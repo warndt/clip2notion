@@ -9,7 +9,7 @@
  */
 
 import { TUNABLES, type Config } from "./config";
-import { ERROR_MARKER, HEADER_PREFIX, STATUS_MARKER } from "./markers";
+import { ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER } from "./markers";
 import {
   blockFirstLink, blockLinksTo, blockPlainText, NotionClient, type NotionBlockRecord,
 } from "./notion";
@@ -165,27 +165,36 @@ export function deriveClipStatus(children: NotionBlockRecord[]): ClipStatus {
   );
 
   /**
-   * An error callout outranks everything — unless a clip finished *after* it.
+   * An error callout outranks everything — unless it cannot be describing the
+   * article that is sitting under it.
    *
    * The rank exists because a run that dies partway leaves both partial content
-   * and an error, and that is a failure, not a success with decoration. Since
-   * the error is written last in that sequence, the run's own error is always
-   * at least as new as its header, and the rank holds.
+   * and an error, and that is a failure, not a success with decoration. What the
+   * rank could not survive was an error from a *different*, earlier run: only
+   * `force` sweeps callouts, so a failed clip followed by an ordinary clip of
+   * another URL left both on the page, and the page then reported FAILED for
+   * good, quoting the wrong site, while holding a complete article.
    *
-   * What the rank could not survive was an error from a *different*, earlier
-   * run. Only `force` sweeps callouts, so a failed clip followed by an ordinary
-   * clip of another URL left both on the page — and the page then reported
-   * FAILED for good, quoting the wrong site, while holding a complete article.
-   * A caller obeying "never retry after FAILED" relays that to the user, who
-   * reaches for the Web Clipper and appends a duplicate.
+   * Ownership decides it, and the failing run already recorded its own: an error
+   * whose message lacks `PARTIAL_WRITE_MARKER` comes from a run that wrote no
+   * content at all. Such a run cannot be the author of an article on the page,
+   * so its error cannot be about that article.
    *
-   * Strictly newer, and both timestamps required: Notion records creation to
-   * the minute, so a partial write and its error frequently share one. A tie
-   * has to read as failure — never claim success on an ambiguous page.
+   * Timestamps alone could not carry this. Notion records creation to the
+   * minute, and a 403 fails in about a second, so a failure and the retry that
+   * follows it routinely share one minute — measured live on 2026-08-16, where
+   * two runs seven seconds apart both stamped 23:44 and the tie sent a complete
+   * clip back as FAILED. The clock is kept only as a floor: a header *older*
+   * than the error belongs to some earlier clip and must not be reported as the
+   * outcome of the run that just failed. Both stamps must be present; when they
+   * are not, nothing can be ordered and the safe reading is failure.
    */
   const failedAt = failure ? createdTime(failure) : undefined;
   const headerAt = header ? createdTime(header) : undefined;
-  const superseded = Boolean(failedAt && headerAt && headerAt > failedAt);
+  const wroteNothing = failure
+    ? !blockPlainText(failure).includes(PARTIAL_WRITE_MARKER)
+    : false;
+  const superseded = Boolean(wroteNothing && failedAt && headerAt && headerAt >= failedAt);
 
   if (failure && !superseded) {
     return {

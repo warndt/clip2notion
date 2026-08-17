@@ -12,7 +12,7 @@ import test from "node:test";
 
 import { deriveClipStatus, selectBlocksToDelete } from "../src/pipeline";
 import { describeClipTime } from "../src/status";
-import { clipHeader, errorCallout, statusCallout, type Block } from "../src/blocks";
+import { clipHeader, errorCallout, statusCallout, PARTIAL_WRITE_MARKER, type Block } from "../src/blocks";
 import type { NotionBlockRecord } from "../src/notion";
 
 /** Dress a generated block up as a block record returned by the Notion API. */
@@ -308,12 +308,55 @@ test("an error written after the header still reports failed", () => {
   assert.equal(status.state, "failed");
 });
 
-test("a header and an error sharing one minute reads as failed", () => {
-  // Notion records creation to the minute, so a partial write and its error
-  // routinely carry the same stamp. Ambiguity must resolve to failure: never
-  // claim success on a page that cannot be read confidently.
+/** A failure that happened after content was already on the page. */
+const partialFailure = record(
+  errorCallout(
+    `Notion rejected a write. ${PARTIAL_WRITE_MARKER} — delete the clipped blocks and re-run to retry.`,
+    "clp_test1",
+  ),
+  "partial-failure",
+);
+
+test("a failure that wrote nothing cannot own a clip sharing its minute", () => {
+  // Measured live on 2026-08-16: a 403 failed and the retry was dispatched
+  // seven seconds later, so both blocks stamped 23:44 and the tie sent a
+  // complete article back to the caller as FAILED. A run that wrote no content
+  // cannot be the author of the article beneath it, whatever the clock says.
+  const at = "2026-08-16T23:44:00.000Z";
+  const status = deriveClipStatus([stamped(failure, at), stamped(header, at), paragraph]);
+
+  assert.equal(status.state, "clipped");
+  assert.match(status.staleError ?? "", /Paywall detected/);
+});
+
+test("a partial write sharing one minute with its header still reads as failed", () => {
+  // The dangerous direction. This error DID write content, so the header below
+  // it may be its own truncated article. Ambiguity resolves to failure.
   const at = "2026-08-16T23:14:00.000Z";
-  assert.equal(deriveClipStatus([stamped(header, at), stamped(failure, at)]).state, "failed");
+  const status = deriveClipStatus([stamped(partialFailure, at), stamped(header, at), paragraph]);
+
+  assert.equal(status.state, "failed");
+});
+
+test("a partial write never yields to a later header either", () => {
+  const status = deriveClipStatus([
+    stamped(partialFailure, "2026-08-16T23:14:00.000Z"),
+    stamped(header, "2026-08-16T23:20:00.000Z"),
+  ]);
+
+  assert.equal(status.state, "failed", "content written by the failed run keeps the error on top");
+});
+
+test("a clip older than the error is not reported as that run's outcome", () => {
+  // A page already holding a finished clip, then a failed attempt at a second
+  // URL that wrote nothing. The article is real but it is not what the caller
+  // just asked for, so reporting CLIPPED would be the confident wrong answer.
+  const status = deriveClipStatus([
+    stamped(header, "2026-08-16T23:40:00.000Z"),
+    stamped(failure, "2026-08-16T23:44:00.000Z"),
+  ]);
+
+  assert.equal(status.state, "failed");
 });
 
 test("an untimed error still outranks a header, as before", () => {
