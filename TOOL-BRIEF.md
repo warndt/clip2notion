@@ -46,7 +46,7 @@ A clip with `force` deletes each block from the `Source:` line to the end of the
 
 ### If the service does not operate
 
-First, **find out which version operates**. Send a request to `https://<your-site>.netlify.app/.netlify/functions/health`. It answers with the deployed commit, if each necessary secret is present, and the current settings. It never gives the value of a secret. A `503` means that the configuration is not complete and no clip will operate until a person corrects it.
+First, **find out which version operates**. Send a request to `https://<your-site>.netlify.app/.netlify/functions/health`. It answers with `deploy_id`, if each necessary secret is present, and the current settings. It never gives the value of a secret. A `503` means that the configuration is not complete and no clip will operate until a person corrects it. ⚠️ The `commit` field is always `null` — `COMMIT_REF` is a build variable and is absent when a function operates. Use `deploy_id` to identify the build.
 
 Then open Netlify, then the clip2notion site, then **Function logs**. Each run has a `clip_id`. The messages `image_degraded` and `image_import_failed` show images that became external links. If there are many of these for one website, the cause is systematic for that website and is not a single event.
 
