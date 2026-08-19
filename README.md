@@ -62,8 +62,10 @@ Claude session (claude.ai)
         ▼
  clip-background.ts ─── Maximum time: 15 minutes
         │
-        ├── Reads the URL. Uses Readability. Looks for a paywall or a bot-block.
-        ├── Changes the DOM into Notion blocks (tables, code, footnotes, lead image)
+        ├── Reads the URL. Recovers an article held in an attribute. Uses
+        │     Readability. Looks for a paywall or a bot-block.
+        ├── Changes the DOM into Notion blocks (tables, code, footnotes, lead
+        │     image, layout-table flattening, headings set by inline styles)
         ├── Sends each image to Notion
         └── Writes to the page in groups of 100 blocks
 ```
@@ -183,6 +185,8 @@ You must replace the background function. This is necessary because Netlify stop
 **Different conversion values.** All of the values are in `TUNABLES` in [src/config.ts](src/config.ts). You can change each value with an environment variable that has the same name. Therefore you can correct an incorrect value in the Netlify interface without a deploy. Users change these values most frequently: `MIN_ARTICLE_CHARS`, `LEAD_IMAGE_MIN_DIMENSION`, `MAX_IMAGES`, and `LEAD_IMAGE_MODE`.
 
 **A website that Readability reads incorrectly.** `extract.ts` cleans the DOM before Readability reads it. It contains corrections for the heading widgets on Substack and for footnotes that Readability removes. Add your corrections in the same function.
+
+**A page that does not contain its own article.** An email-archive viewer keeps the whole newsletter as a string in an attribute and paints it with a script. `findEmbeddedDocument` in `extract.ts` recovers it, and such a document skips Readability, which scores a newsletter's one-line links as furniture and discards them. `blocks.ts` then flattens the layout tables that HTML email is built from, and reads section headings from inline `font-size` relative to the size the document sets prose in.
 
 Read [CLAUDE.md](CLAUDE.md) before you change the code. It lists the limits that cause a failure in production but not in a test. These include the 10-second limit, the rule to keep jsdom out of the synchronous functions, the Notion limit of 2,000 characters for each rich-text object, and the rule that a background function must almost never throw an error.
 

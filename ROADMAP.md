@@ -222,7 +222,7 @@ The service rejected four page-furniture images, rejected no true main image, se
 
 The calling session asked for this after three clips with `force` that it could not verify. It is more valuable than it looks. That question used all of the time that evening, and not the clips.
 
-- ✅ **`netlify/functions/health.ts`** reports the deployed commit, if each necessary secret is present (never its value), and the current settings. It gives `200` if the configuration is correct and `503` if it is not. **CLAUDE.md described this endpoint as the post-deploy check, but the endpoint did not exist.** A request gave the 404 page. Therefore that check had never operated.
+- ✅ **`netlify/functions/health.ts`** reports the deployed commit, if each necessary secret is present (never its value), and the current settings. ⚠️ **The commit field never operated.** `COMMIT_REF` is a build variable and is absent when a function runs, so the field always reads `null`. Use `deploy_id`. Corrected in the documents on 2026-08-19; this line stays as the record of what was believed at the time. It gives `200` if the configuration is correct and `503` if it is not. **CLAUDE.md described this endpoint as the post-deploy check, but the endpoint did not exist.** A request gave the 404 page. Therefore that check had never operated.
 - ✅ **`clip_status` now reports when the service wrote the clip**, as an absolute time and as a relative time. It reads the Notion `created_time` of the header block. Therefore the service writes nothing new to the page, the tool contract does not change, and the duplicate-check key does not change. A clip with `force` deletes the old header and writes a new one, so the time changes only when a run occurs.
 - ✅ `IN_PROGRESS` reports when the run started. Therefore an old marker shows that a run stopped.
 - ✅ A known limit, accepted on purpose: Notion records the creation time of a block to the minute. Therefore you cannot tell two runs apart inside one minute. This value is a **report** and never an input to a decision. No code branches on it.
@@ -282,7 +282,7 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 ---
 
-## M7 — An article the page never renders 🟡
+## M7 — An article the page never renders ✅
 
 Reported from real use on 2026-08-18. A Wealthsimple TLDR newsletter clipped as one unbroken paragraph: no headings, no structure, and 1 image where the issue has 35. The clip reported success.
 
@@ -344,13 +344,13 @@ Result: 7 images to 6, exactly one masthead, every other image intact. The text 
 
 Write new work here. Do not correct it immediately.
 
-**⬜ Three documents say that `/health` reports the deployed commit. It does not (found 2026-08-17).**
+**✅ Three documents say that `/health` reports the deployed commit. It does not (found 2026-08-17, corrected 2026-08-19).**
 
 `health.ts` reads `commit: process.env.COMMIT_REF ?? null`. `COMMIT_REF` is a **build** variable and is not present when a function operates. Therefore the field is always `null`, unless a person sets `COMMIT_REF` by hand as a true environment variable in the Netlify interface. The endpoint says this itself, in its `note` field. The doc comment in `health.ts` is correct and gives the measurement. The other documents are not correct.
 
 **`deploy_id` is the field that identifies the build.** Compare it with the deploy in the Netlify interface, or use `netlify api getDeploy --data '{"deploy_id":"..."}'`. This was used four times on 2026-08-17 and answered the question each time.
 
-The locations to correct:
+The locations to correct, all now done:
 
 - `CLAUDE.md`, the **Check after a deploy** section: "It reports the **deployed commit**". This is the most important location, because it tells the next session to use a field that is always empty.
 - `TOOL-BRIEF.md` section 0, **If the service does not operate**: "It answers with the deployed commit". There is a copy of this document in Notion. ⚠️ A person must update the copy.
@@ -418,7 +418,7 @@ The sequence. A clip of `fantasyliterature.com` failed with a true 403 (`clp_11b
 
 A possible correction, for a decision and not for immediate work: give `markerCreatedAt` and the `clip_id` of the failure to the `failed` state, then let `awaitOwnRun` refuse a `failed` result whose `clip_id` is not its own. Do not delete the callout automatically. ⚠️ `deriveClipStatus` is a pure function with tests, and the order of its tests is deliberate: an error callout must have a higher rank than partial content, because a run that fails after a partial write leaves both. A correction must keep that rank and must separate "an error from **this** run" from "an error that is already on the page".
 
-The test page is `clip2notion rotation test` (`3be87615-cd32-818b-8f74-e489c25317d7`). It holds the sfbook article, the old error callout, and a URL property that still gives the fantasyliterature URL. Keep it. It is the test case.
+The test page is `clip2notion rotation test` in the Resources database. It holds the sfbook article, the old error callout, and a URL property that still gives the fantasyliterature URL. Keep it. It is the test case. (The page id is deliberately not recorded here: this repository is public.)
 
 **✅ `mcp.ts` accepted the token from two routes that nothing uses. Removed and approved (2026-08-16).**
 

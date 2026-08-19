@@ -342,14 +342,14 @@ test("an unwrapped newsletter keeps the section a prose scorer would drop", () =
   // as furniture and vanishes, taking a section of the issue with it.
   const roundup =
     '<table role="presentation">' +
-    ["Lululemon bag goes viral", "7UP rebrands", "Pubs ban AI glasses"]
+    ["A very large bag goes viral", "A soft drink is rebranded", "Pubs ban smart glasses"]
       .map((line) => `<tr><td><div><a href="https://example.com">${line}</a> Source</div></td></tr>`)
       .join("") +
     "</table>";
 
   const article = extractArticle(hostPage(embeddedNewsletter(roundup)), "https://archive.test/33");
 
-  for (const line of ["Lululemon", "7UP", "AI glasses"]) {
+  for (const line of ["very large bag", "soft drink", "smart glasses"]) {
     assert.ok(article.contentHtml.includes(line), `expected the roundup to keep "${line}"`);
   }
 });

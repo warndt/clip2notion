@@ -67,10 +67,12 @@ The service operates as a Netlify function. A Claude session calls it over HTTPS
 │   ├── notion.ts                   # API client, parent check, write, file upload
 │   ├── status.ts                   # Reads the state of a clip and when the clip operated
 │   │   # --- heavy: imports jsdom. Background function only. ---
-│   ├── extract.ts                  # Reads the URL, uses Readability, detects a paywall
+│   ├── extract.ts                  # Reads the URL, recovers an article parked in an
+│   │                               #   attribute, uses Readability, detects a paywall
 │   │                               #   or a bot-block
 │   ├── lead-image.ts               # The main image outside the body of the article
-│   ├── blocks.ts                   # DOM → Notion blocks, rich text, tables, images
+│   ├── blocks.ts                   # DOM → Notion blocks, rich text, tables, images,
+│   │                               #   layout-table flattening, style-based headings
 │   └── pipeline.ts                 # Sequence: duplicate check, status, image import, write
 │
 └── tests/
@@ -114,6 +116,12 @@ These limits control each implementation. Some of them cause a failure in produc
 
 - **An image URL in extracted content is frequently relative.** Resolve each image URL and link URL against the final URL of the article, after each redirect.
 - **A lazy-loaded image has a placeholder in `src`.** The real image is in `data-src`, `data-srcset`, or `srcset`. Simple extraction imports 1×1 spacer images and tracking pixels, and the result looks correct in a code review. Use the largest candidate from `srcset` or `data-srcset` first, then `data-src`, then `src`.
+- ⚠️ **A page does not always contain its own article.** An email-archive viewer keeps the whole newsletter as a string in an **attribute** and paints it into an iframe with a script. The service runs no scripts, so the element arrives empty and Readability extracts whatever plain-text fallback sits beside it — one unbroken paragraph, none of the images, and nothing that looks like a failure. `findEmbeddedDocument` in `extract.ts` recovers it. It is keyed on the **shape of the value** (a value holding `<html>` and `<body>`) and never on a vendor's element name.
+- ⚠️ **An unwrapped document must skip Readability.** Readability finds an article inside a page of navigation and comments. A newsletter has none of that, and run against one it scores a section of one-line links as low-density furniture and **discards it**. Measured: 57 blocks against 99, the difference being an entire editorial section. A few visible lines of footer are the better trade — a reader can see and delete those.
+- ⚠️ **HTML email is built from nested tables**, because they are the only layout primitive Outlook honours. One real newsletter had 83 tables of which 81 were pure layout; converting them fired the nested-table and merged-cell fallbacks and dumped 82,350 characters of markup into a code block. `blocks.ts` flattens a table that declares `role="presentation"`, wraps another table, or holds one cell. **A table carrying `th` or `thead` is never touched** — flattening a real table turns a grid into loose paragraphs and nothing about the result looks wrong.
+- ⚠️ **`querySelectorAll("tr")` reaches straight through nested tables.** The outer table of that newsletter measured as a grid of 134 rows by 162 columns. Use `ownCells`, which keeps only the cells whose `closest("table")` is the table in hand.
+- ⚠️ **The largest text on a page is frequently not a heading.** Email marks its sections with inline `font-size`, so a section title converts as one more paragraph and the Notion outline comes out empty. `blocks.ts` infers headings **relative to the size the document sets prose in**. In one issue the biggest size in the document was a lone decorative emoji between items: a rule promoting the largest text made eight junk headings and found none of the real ones. Requiring a letter or a digit separates the two.
+- ⚠️ **Email ships two copies of its masthead**, a light-mode one and a dark-mode one, and hides one with inline `display:none`. Both were clipped, so the hero image appeared twice. A hidden image is dropped **only when the same URL is also on a visible image**, so requirement 1 holds and a copy is never the last one.
 
 ### Security
 
@@ -300,9 +308,15 @@ Set these in the Netlify interface (Site configuration → Environment variables
 
 ### Check after a deploy
 
-Send a request to `/.netlify/functions/health`. It reports the **deployed commit**, if each necessary environment variable is present, and the current settings (the Notion API version and `LEAD_IMAGE_MODE`). It gives no secret values. It returns `200` if the configuration is complete and `503` if a necessary variable is not present.
+Send a request to `/.netlify/functions/health`. It reports **`deploy_id`**, if each necessary environment variable is present, and the current settings (the Notion API version and `LEAD_IMAGE_MODE`). It gives no secret values. It returns `200` if the configuration is complete and `503` if a necessary variable is not present.
 
-The commit is the important part. Without it, you must read the build log to answer "is the correction in production?". A change that deploys but does nothing looks the same as a change that never deployed. ⚠️ **The function logs lose entries.** A request that certainly operated was not in the logs. Therefore a log entry that is not present does not show that an event did not occur.
+⚠️ **`commit` is always `null`. Do not use it.** `COMMIT_REF` is a **build** variable and is not present when a function operates. The endpoint says this itself, in its `note` field. **`deploy_id` is the field that identifies the build.** To answer "is the correction in production?", compare it with the deploy in the Netlify interface, or read the deploy list, which gives each deploy its state and its commit subject in one call:
+
+```
+netlify api listSiteDeploys --data '{"site_id":"<site id>","per_page":3}'
+```
+
+Identifying the build is the important part. Without it, you must read the build log to answer "is the correction in production?". A change that deploys but does nothing looks the same as a change that never deployed. ⚠️ A deploy lands about **70 seconds** after a push, so take any "before" reading **before** you push — otherwise the value you record is already the new one. ⚠️ **The function logs lose entries.** A request that certainly operated was not in the logs. Therefore a log entry that is not present does not show that an event did not occur.
 
 ---
 
