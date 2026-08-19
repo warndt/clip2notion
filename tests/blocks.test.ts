@@ -514,3 +514,101 @@ test("loading animations are not archived as photographs", () => {
     "https://example.com/img/loaders-at-work.jpg",
   ]);
 });
+
+// --- Layout tables ---------------------------------------------------------
+//
+// HTML email is built entirely from nested tables, because they are the only
+// layout primitive Outlook honours. Converting those to Notion tables produced a
+// column of one-cell tables, and the nested-table and merged-cell fallbacks fired
+// instead: one real newsletter came out as 82,350 characters of raw markup in a
+// code block. The risk of the fix is the opposite error, so a table that carries
+// header cells must still convert.
+
+test("a presentation table becomes content, not a table", () => {
+  const blocks = htmlToBlocks(
+    '<table role="presentation"><tr><td><p>First cell.</p></td></tr>' +
+      "<tr><td><p>Second cell.</p></td></tr></table>",
+    "https://example.com/",
+  ).blocks;
+
+  assert.equal(blocks.filter((b) => b.type === "table").length, 0);
+  assert.deepEqual(
+    blocks.map((b) => b.type),
+    ["paragraph", "paragraph"],
+  );
+});
+
+test("a table wrapping another table is scaffolding", () => {
+  const blocks = htmlToBlocks(
+    "<table><tr><td><table><tr><td><p>Inner text.</p></td></tr></table></td></tr></table>",
+    "https://example.com/",
+  ).blocks;
+
+  assert.equal(blocks.filter((b) => b.type === "table").length, 0);
+  assert.equal(plainTextLength(richTextOf(blocks[0]!)), "Inner text.".length);
+});
+
+test("a single-cell table has no grid to lose", () => {
+  const blocks = htmlToBlocks("<table><tr><td><p>Just a shim.</p></td></tr></table>", "https://example.com/").blocks;
+  assert.equal(blocks.filter((b) => b.type === "table").length, 0);
+});
+
+test("a table with header cells is still a table", () => {
+  // The regression that matters most: flattening a real table would turn a grid
+  // into a run of loose paragraphs, and nothing about the result looks wrong.
+  const blocks = htmlToBlocks(
+    "<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead>" +
+      "<tbody><tr><td>no-store</td><td>Never cache.</td></tr></tbody></table>",
+    "https://example.com/",
+  ).blocks;
+
+  const table = blocks.find((b) => b.type === "table");
+  assert.ok(table, "a table carrying <th> must survive as a table");
+  assert.equal((payload(table)["table_width"] as number), 2);
+  assert.equal((payload(table)["has_column_header"] as boolean), true);
+});
+
+test("a data table inside a layout wrapper survives it", () => {
+  const blocks = htmlToBlocks(
+    '<table role="presentation"><tr><td>' +
+      "<table><tr><th>Year</th></tr><tr><td>2026</td></tr></table>" +
+      "</td></tr></table>",
+    "https://example.com/",
+  ).blocks;
+
+  assert.equal(blocks.filter((b) => b.type === "table").length, 1);
+});
+
+test("a layout table keeps every cell's text", () => {
+  const cells = ["alpha", "bravo", "charlie", "delta"];
+  const blocks = htmlToBlocks(
+    '<table role="presentation">' +
+      cells.map((c) => `<tr><td><p>${c}</p></td></tr>`).join("") +
+      "</table>",
+    "https://example.com/",
+  ).blocks;
+
+  const text = blocks.map((b) => richTextOf(b).map((r) => r.text.content).join("")).join(" ");
+  for (const cell of cells) assert.ok(text.includes(cell), `lost the cell "${cell}"`);
+});
+
+// --- Spacer blocks ---------------------------------------------------------
+
+test("a block of nothing but invisible padding is dropped", () => {
+  // An email preheader is hundreds of zero-width non-joiners in a row. It
+  // occupies a block and shows nothing.
+  const padding = "\u200c\u00a0".repeat(50);
+  const blocks = htmlToBlocks(`<p>${padding}</p><p>Real text.</p>`, "https://example.com/").blocks;
+
+  assert.equal(blocks.length, 1);
+  assert.equal(richTextOf(blocks[0]!)[0]!.text.content, "Real text.");
+});
+
+test("a zero-width joiner inside a word is left alone", () => {
+  // Meaningful in several scripts, so the test is per block and not per character.
+  const word = "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645";
+  const blocks = htmlToBlocks(`<p>${word}</p>`, "https://example.com/").blocks;
+
+  assert.equal(blocks.length, 1);
+  assert.ok(richTextOf(blocks[0]!)[0]!.text.content.includes("\u200c"));
+});

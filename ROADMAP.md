@@ -282,6 +282,42 @@ Seven tests. Two of them keep the correction accurate: an icon inside a sentence
 
 ---
 
+## M7 — An article the page never renders 🟡
+
+Reported from real use on 2026-08-18. A Wealthsimple TLDR newsletter clipped as one unbroken paragraph: no headings, no structure, and 1 image where the issue has 35. The clip reported success.
+
+**Three failures, stacked. The first one hides the other two.**
+
+1. **The page never renders the article.** It is an email-archive viewer. The newsletter is a complete HTML document held as a **string in an attribute** — `<archive-component contents="<!DOCTYPE html>…">`, 90,621 characters — and a script paints it into an iframe. The service runs no scripts, so the element arrives empty.
+2. **Therefore Readability extracted the plain-text fallback.** The viewer ships a "Read text version" copy inside a `<details>` element, and it was the only prose left standing. Readability chose it correctly.
+3. **That fallback carries its structure in newline characters, and `normalizeText` collapses whitespace.** 175 line breaks became spaces. The result was 2 blocks, one holding 10,346 characters.
+
+**No text was lost, which is why nothing looked wrong.** The body holds 21,080 characters: 10,394 of sidebar navigation and 10,547 of content. Readability kept 10,494. The defect was structure and images, not text.
+
+- ✅ `findEmbeddedDocument` in `src/extract.ts` recovers an article parked in an attribute. Keyed on the **shape of the value** — a value holding `<html>` and `<body>`, past `TUNABLES.embeddedDocumentMinChars` — and never on a vendor's element or attribute name. Those differ between viewers; a whole document in an attribute does not. A host that already renders more text than it stores is left alone, so unwrapping is never a step backwards.
+- ✅ **An unwrapped document skips Readability.** Readability finds an article inside a page of navigation and comments. A newsletter has none of that, and run against one it scored a section of one-line links as low-density furniture and **discarded it**. Measured: through Readability 57 blocks and 9,022 characters, whole 99 blocks and 10,834 characters. The difference was an entire editorial section of the issue, gone with nothing on the page to show it. What rides along instead is four visible lines of footer, which a reader can see and delete. **A visible imperfection is better than an invisible loss.**
+- ✅ **Layout tables flatten** (`src/blocks.ts`). HTML email is built from nested tables, because they are the only layout primitive Outlook honours. This issue has 83 tables and 81 are pure layout. Converting them gave a column of one-cell tables, and the nested-table and merged-cell fallbacks fired instead: the clip became **82,350 characters of raw markup in a code block**. Three narrow tests — `role="presentation"`, wraps another table, or holds one cell — and anything carrying `th` or `thead` is never touched.
+- ✅ `ownCells` fixed a second bug found on the way. `querySelectorAll("tr")` reaches straight through nested tables, so the outer table of this email measured as a grid of **134 rows by 162 columns**.
+- ✅ **The archive page titles the clip.** Readability names an embedded newsletter from its own `<head>`, which is the sender's brand. The issue headline exists only on the outer page, so outer metadata now outranks Readability's title where a document was unwrapped.
+- ✅ **A block of nothing but invisible padding is dropped.** An email preheader is hundreds of zero-width non-joiners in a row; it occupies a block and shows nothing. Tested per block and not per character, because a zero-width joiner inside a word is meaningful in several scripts.
+- ✅ 14 tests. These cover both directions: the article is recovered, **and** a table carrying header cells still converts. The second is the one that matters — flattening a real table turns a grid into loose paragraphs and nothing about the result looks wrong.
+
+Measured on the reported article:
+
+| | Before | After |
+|---|---|---|
+| Blocks | 2 | 98 |
+| Longest single block | 10,346 chars | 1,165 chars |
+| Images | 1 | 7 |
+| Real tables kept | 0 | 2 |
+| Title | — | the issue headline, not the sender |
+
+Regression check, MDN `Cache-Control`: 2 tables with headers, 30 code blocks, 35 headings. Unchanged from the M2 baseline. `mcp.ts` bundles at 49.5KB, so no jsdom reached the synchronous path.
+
+**Complete when:** Wil reviews the work, and a real clip of an email-archive newsletter shows the structure, the images, and the roundup section. ⚠️ **Not deployed.** Awaiting review and a decision to push.
+
+---
+
 ## Backlog
 
 Write new work here. Do not correct it immediately.
