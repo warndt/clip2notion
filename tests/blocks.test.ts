@@ -612,3 +612,79 @@ test("a zero-width joiner inside a word is left alone", () => {
   assert.equal(blocks.length, 1);
   assert.ok(richTextOf(blocks[0]!)[0]!.text.content.includes("\u200c"));
 });
+
+// --- Headings that were never heading elements -----------------------------
+//
+// HTML email has no <h2>. A newsletter marks sections with inline font-size, so
+// every section title converted as one more paragraph and the clip arrived as an
+// undifferentiated column of prose with an empty Notion outline.
+
+/** A document that lays out by hand: prose at 16px, past the sample threshold. */
+function styled(rows: string): string {
+  const prose = Array.from(
+    { length: 6 },
+    (_, i) => `<div style="font-size:16px">Body prose number ${i}, set at the size this document reads in.</div>`,
+  ).join("");
+  return `<div>${rows}${prose}</div>`;
+}
+
+function headingsOf(html: string): Array<[string, string]> {
+  return htmlToBlocks(html, "https://example.com/")
+    .blocks.filter((b) => b.type.startsWith("heading"))
+    .map((b) => [b.type, richTextOf(b).map((r) => r.text.content).join("")] as [string, string]);
+}
+
+test("text set well above the body size becomes a heading", () => {
+  const found = headingsOf(styled('<div style="font-size:26px">The Week in Markets</div>'));
+  assert.deepEqual(found, [["heading_2", "The Week in Markets"]]);
+});
+
+test("a moderate step above the body size is a subheading", () => {
+  const found = headingsOf(styled('<div style="font-size:20px">A quick rule of thumb</div>'));
+  assert.deepEqual(found, [["heading_3", "A quick rule of thumb"]]);
+});
+
+test("the largest text on the page is not automatically a heading", () => {
+  // The trap this rule is built around. In the newsletter it came from, 36px is
+  // the biggest size in the document and every instance is a lone decorative
+  // emoji. Promoting the largest text finds eight junk headings and no real ones.
+  const found = headingsOf(
+    styled('<div style="font-size:36px">\u{1f916}</div><div style="font-size:26px">Superlatives of the Week</div>'),
+  );
+  assert.deepEqual(found, [["heading_2", "Superlatives of the Week"]]);
+});
+
+test("a long passage in large type is still a paragraph", () => {
+  const long = "This runs on well past any length a section title would take. ".repeat(4);
+  assert.deepEqual(headingsOf(styled(`<div style="font-size:26px">${long}</div>`)), []);
+});
+
+test("large type wrapped around a picture is a layout choice", () => {
+  const found = headingsOf(styled('<div style="font-size:26px"><img src="/photo.jpg" alt="A photo"></div>'));
+  assert.deepEqual(found, []);
+});
+
+test("an ordinary article is never given inferred headings", () => {
+  // Below the sample threshold the document is not laying out by hand, and the
+  // inference is not safe to draw. This is what keeps every existing clip intact.
+  const found = headingsOf('<p style="font-size:28px">A styled lead paragraph.</p><p>Ordinary prose.</p>');
+  assert.deepEqual(found, []);
+});
+
+test("a section title on a layout cell is promoted", () => {
+  // The newsletter sets its titles on the <td> itself, not on anything inside it.
+  const found = headingsOf(
+    styled('<table role="presentation"><tr><td style="font-size:26px">The Big Important Story</td></tr></table>'),
+  );
+  assert.deepEqual(found, [["heading_2", "The Big Important Story"]]);
+});
+
+test("promoting a heading never loses its text", () => {
+  const plain = htmlToBlocks(styled(""), "https://example.com/").blocks;
+  const withHeading = htmlToBlocks(
+    styled('<div style="font-size:26px">Finance 101</div>'),
+    "https://example.com/",
+  ).blocks;
+
+  assert.equal(totalChars(withHeading), totalChars(plain) + "Finance 101".length);
+});

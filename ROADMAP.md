@@ -314,7 +314,19 @@ Measured on the reported article:
 
 Regression check, MDN `Cache-Control`: 2 tables with headers, 30 code blocks, 35 headings. Unchanged from the M2 baseline. `mcp.ts` bundles at 49.5KB, so no jsdom reached the synchronous path.
 
-**Complete when:** Wil reviews the work, and a real clip of an email-archive newsletter shows the structure, the images, and the roundup section. ⚠️ **Not deployed.** Awaiting review and a decision to push.
+### Headings that were never heading elements
+
+Reported from the live clip on 2026-08-19, after the deploy above. The clip was readable and complete, but had no section structure and gave an empty Notion outline. **This is not a limit of the format.** The newsletter has a full heading hierarchy; it writes it as inline `font-size` on a `<td>`, and the converter recognised only real heading tags.
+
+- ✅ `styleHeadingLevel` in `src/blocks.ts` reads sizes **relative to the size the document sets prose in**, and not against fixed numbers. A newsletter at 14px and one at 18px are the same design with different absolutes. `documentBodyFontSize` finds that size by asking which one carries the most prose.
+- ✅ `governedTextLength` credits text to the size that governs it. Without this a `<td>` wrapping a whole section is credited with the section's text, and the outermost container wins the vote on every table-built page.
+- ✅ ⚠️ **The largest text on a page is frequently not a heading.** In this issue 36px is the biggest size in the document, and every instance is a lone decorative emoji between roundup items. A rule that promoted the largest text would have made eight junk headings and found none of the real ones. Requiring a letter or a digit separates the two.
+- ✅ Below `STYLE_HEADING_MIN_SAMPLES` sized elements a document is not laying out by hand and the inference is not drawn. An ordinary article lands here and is untouched.
+- ✅ 8 tests, including the emoji trap, a long passage in large type, and an ordinary article receiving no inferred headings.
+
+Result on the reported article: **9 `heading_2` and 10 `heading_3`**, matching the newsletter's real sections. The block count and the character count did not change, so the headings are promoted paragraphs and nothing was added or lost. MDN `Cache-Control` is unchanged at 35 headings, 30 code blocks and 2 tables.
+
+**Complete when:** Wil reviews the work, and a real clip of an email-archive newsletter shows the structure, the images, the roundup section, and the section headings. First half deployed on 2026-08-19 and confirmed by a live clip (`CLIPPED`). The headings are a second deploy.
 
 ---
 

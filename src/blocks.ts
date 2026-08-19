@@ -45,6 +45,9 @@ export { ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER };
 interface Ctx {
   baseUrl: string;
   depth: number;
+  /** The size this document sets prose in, or null where it sets no sizes by
+   *  hand. Null disables style-based headings entirely. */
+  bodyFontSize: number | null;
 }
 
 // --- Rich text -------------------------------------------------------------
@@ -248,7 +251,8 @@ export function splitRichText(items: RichText[]): RichText[] {
 
 export function richTextFrom(el: Element, baseUrl: string): RichText[] {
   const out: RichText[] = [];
-  collectRichText(el, { baseUrl, depth: 0 }, {}, null, out);
+  // Rich text only: there is no block to promote, so headings never apply.
+  collectRichText(el, { baseUrl, depth: 0, bodyFontSize: null }, {}, null, out);
   return splitRichText(tidy(out));
 }
 
@@ -603,7 +607,15 @@ function isLayoutTable(el: Element): boolean {
  */
 function flattenLayoutTable(el: Element, ctx: Ctx): Block[] {
   const blocks: Block[] = [];
-  for (const cell of ownCells(el)) blocks.push(...walkChildren(cell, ctx));
+  for (const cell of ownCells(el)) {
+    // A newsletter sets its section titles on the cell itself.
+    const level = styleHeadingLevel(cell, ctx);
+    if (level) {
+      blocks.push(...blocksFromRichText(level, richTextFrom(cell, ctx.baseUrl), { is_toggleable: false }));
+      continue;
+    }
+    blocks.push(...walkChildren(cell, ctx));
+  }
   return blocks;
 }
 
@@ -670,6 +682,96 @@ function cellRichText(cell: Element, ctx: Ctx): RichText[] {
 
 // --- Element dispatch ------------------------------------------------------
 
+/**
+ * Headings that were never heading elements.
+ *
+ * HTML email has no `<h2>`. A newsletter marks its sections with inline
+ * `font-size` on a `<td>`, so every section title converts as one more paragraph
+ * and the clip arrives as an undifferentiated column of prose. The text is all
+ * there, which is why it reads as a formatting nit rather than a defect, but the
+ * article loses its shape and Notion's outline comes out empty.
+ *
+ * Sizes are read relative to the document's own body size rather than against
+ * fixed numbers, because a newsletter that sets prose at 14px and one that sets
+ * it at 18px are the same design with different absolutes.
+ *
+ * ⚠️ The largest text on a page is frequently not a heading. In the newsletter
+ * this was built from, 36px is the biggest size in the document and every
+ * instance of it is a lone decorative emoji between items — a rule that promoted
+ * the largest text would have created eight junk headings and found none of the
+ * real ones. Requiring a letter or a digit is what separates the two.
+ */
+const HEADING_MIN_RATIO = 1.2;
+const HEADING_MAJOR_RATIO = 1.45;
+const HEADING_MAX_CHARS = 120;
+
+/** Below this many sized elements, a document is not laying out by hand and the
+ *  inference is not safe to draw. An ordinary article lands here and is untouched. */
+const STYLE_HEADING_MIN_SAMPLES = 5;
+
+function fontSizePx(el: Element): number | null {
+  const match = (el.getAttribute("style") ?? "").match(/font-size:\s*([\d.]+)\s*px/i);
+  if (!match) return null;
+  const size = Number(match[1]);
+  return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+/**
+ * Text that this element's own size governs. A descendant declaring a size of
+ * its own is counted against that size instead — without this a `<td>` wrapping
+ * a whole section is credited with the section's text, and the outermost
+ * container wins the vote for "body size" on every table-built page.
+ */
+function governedTextLength(el: Element): number {
+  let length = (el.textContent ?? "").length;
+  for (const descendant of Array.from(el.querySelectorAll("[style]"))) {
+    if (fontSizePx(descendant) !== null) length -= (descendant.textContent ?? "").length;
+  }
+  return Math.max(0, length);
+}
+
+/** The size carrying the most prose — the one the document reads in. */
+function documentBodyFontSize(root: Element): number | null {
+  const volume = new Map<number, number>();
+  let samples = 0;
+
+  for (const el of Array.from(root.querySelectorAll("[style]"))) {
+    const size = fontSizePx(el);
+    if (size === null) continue;
+    samples++;
+    volume.set(size, (volume.get(size) ?? 0) + governedTextLength(el));
+  }
+  if (samples < STYLE_HEADING_MIN_SAMPLES) return null;
+
+  let best: number | null = null;
+  let bestVolume = 0;
+  for (const [size, chars] of volume) {
+    if (chars > bestVolume) {
+      best = size;
+      bestVolume = chars;
+    }
+  }
+  return bestVolume > 0 ? best : null;
+}
+
+function styleHeadingLevel(el: Element, ctx: Ctx): string | null {
+  if (ctx.bodyFontSize === null) return null;
+
+  const size = fontSizePx(el);
+  if (size === null || size < ctx.bodyFontSize * HEADING_MIN_RATIO) return null;
+
+  const text = (el.textContent ?? "").trim();
+  if (!text || text.length > HEADING_MAX_CHARS) return null;
+
+  // Decoration, not a heading. See the warning above.
+  if (!/[\p{L}\p{N}]/u.test(text)) return null;
+
+  // Large type wrapped around a picture or a grid is a layout choice.
+  if (el.querySelector("img, picture, table")) return null;
+
+  return size >= ctx.bodyFontSize * HEADING_MAJOR_RATIO ? "heading_2" : "heading_3";
+}
+
 const HEADING_LEVELS: Record<string, string> = {
   H1: "heading_1", H2: "heading_2", H3: "heading_3",
   // Notion stops at three levels. Deeper headings land on heading_3 rather
@@ -723,8 +825,13 @@ function convertElement(el: Element, ctx: Ctx): Block[] {
     case "BR":
       return [];
 
-    default:
+    default: {
+      const level = styleHeadingLevel(el, ctx);
+      if (level) {
+        return blocksFromRichText(level, richTextFrom(el, ctx.baseUrl), { is_toggleable: false });
+      }
       return walkChildren(el, ctx);
+    }
   }
 }
 
@@ -928,7 +1035,11 @@ export interface ConversionResult {
 export function htmlToBlocks(html: string, baseUrl: string): ConversionResult {
   const dom = new JSDOM(`<!DOCTYPE html><body>${html}</body>`);
   const body = dom.window.document.body;
-  const blocks = walkChildren(body, { baseUrl, depth: 0 });
+  const blocks = walkChildren(body, {
+    baseUrl,
+    depth: 0,
+    bodyFontSize: documentBodyFontSize(body),
+  });
 
   if (blocks.length > TUNABLES.maxBlocks) {
     return { blocks: blocks.slice(0, TUNABLES.maxBlocks), truncatedAtBlockCap: true };
@@ -1009,7 +1120,8 @@ export function footnoteBlocks(
     const holder = document.createElement("div");
     holder.innerHTML = footnote.html;
 
-    const body = walkChildren(holder, { baseUrl, depth: 0 });
+    // A footnote is prose by definition; nothing inside one is a section title.
+    const body = walkChildren(holder, { baseUrl, depth: 0, bodyFontSize: null });
     const label = makeRichText(`${footnote.number}. `, { bold: true }, null);
 
     const first = body[0];
