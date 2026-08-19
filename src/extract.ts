@@ -276,6 +276,57 @@ function collectFootnotes(doc: Document): Footnote[] {
   return found;
 }
 
+/**
+ * Recover an article that the page keeps in an attribute rather than in the DOM.
+ *
+ * Email-archive viewers do this: the newsletter is a complete HTML document held
+ * as a string on a custom element, and a script paints it into an iframe at
+ * render time. We do not run scripts, so the element arrives empty, and the only
+ * prose left standing is whatever plain-text fallback the viewer ships beside it.
+ * Readability then quite correctly extracts that fallback — which carries its
+ * structure in newline characters alone, and carries none of the images. The
+ * clip is one unbroken paragraph, and nothing about it looks like a failure.
+ *
+ * Measured on a Wealthsimple TLDR archive page: the rendered document holds one
+ * image and no paragraph elements at all, while the attribute holds the real
+ * newsletter with 35 images and 83 tables.
+ *
+ * Keyed on the shape of the value rather than on a vendor's element or attribute
+ * name. Those differ between viewers; a whole HTML document parked in an
+ * attribute is the part that does not.
+ */
+export function findEmbeddedDocument(doc: Document, finalUrl: string): Document | null {
+  let best: string | null = null;
+
+  for (const el of Array.from(doc.querySelectorAll("*"))) {
+    for (const attr of Array.from(el.attributes)) {
+      const value = attr.value;
+      if (value.length < TUNABLES.embeddedDocumentMinChars) continue;
+      if (!/<html[\s>]/i.test(value) || !/<body[\s>]/i.test(value)) continue;
+
+      // The host is normally empty. If it already renders more text than it
+      // stores, the attribute is a copy and the live DOM is the better source.
+      if ((el.textContent ?? "").trim().length > value.length / 2) continue;
+
+      if (best === null || value.length > best.length) best = value;
+    }
+  }
+
+  if (best === null) return null;
+
+  let embedded: Document;
+  try {
+    embedded = new JSDOM(best, { url: finalUrl }).window.document;
+  } catch {
+    return null;
+  }
+
+  // Never trade a working extraction for a worse one: the embedded document has
+  // to beat the threshold that the outer page would have to beat anyway.
+  const text = (embedded.body?.textContent ?? "").trim().length;
+  return text >= TUNABLES.minArticleChars ? embedded : null;
+}
+
 function meta(doc: Document, selectors: string[]): string | null {
   for (const selector of selectors) {
     const el = doc.querySelector(selector);
@@ -294,25 +345,38 @@ function normalizeDate(raw: string | null): string | null {
 
 export function extractArticle(html: string, finalUrl: string): ExtractedArticle {
   const dom = new JSDOM(html, { url: finalUrl });
-  const doc = dom.window.document;
+  const outerDoc = dom.window.document;
 
-  const pageTitle = (doc.title || "").toLowerCase();
+  const pageTitle = (outerDoc.title || "").toLowerCase();
   if (BOT_BLOCK_TITLES.some((marker) => pageTitle.includes(marker))) {
-    throw errors.botChallenge(new URL(finalUrl).hostname, doc.title);
+    throw errors.botChallenge(new URL(finalUrl).hostname, outerDoc.title);
   }
 
+  // An archive viewer stores the real article in an attribute and paints it with
+  // a script. Where that is the case the embedded document is the article, and
+  // the outer page is a shell around it — but its <head> still carries the
+  // metadata worth having, so titles and dates keep reading from the outer page.
+  const embeddedDoc = findEmbeddedDocument(outerDoc, finalUrl);
+  const doc = embeddedDoc ?? outerDoc;
+
   // Read metadata before Readability runs — it mutates the document it is given.
-  const metaTitle = meta(doc, ['meta[property="og:title"]', 'meta[name="twitter:title"]']) || doc.title || null;
-  const siteName = meta(doc, ['meta[property="og:site_name"]', 'meta[name="application-name"]']);
-  const metaByline = meta(doc, [
+  // Outer page first, embedded document second: a newsletter's own <head> is
+  // usually bare, while the archive page around it carries the real title.
+  const metaTitle =
+    meta(outerDoc, ['meta[property="og:title"]', 'meta[name="twitter:title"]']) ||
+    outerDoc.title ||
+    meta(doc, ['meta[property="og:title"]']) ||
+    null;
+  const siteName = meta(outerDoc, ['meta[property="og:site_name"]', 'meta[name="application-name"]']);
+  const metaByline = meta(outerDoc, [
     'meta[name="author"]', 'meta[property="article:author"]', 'meta[name="byl"]',
     'meta[name="parsely-author"]',
   ]);
   const publishedAt = normalizeDate(
-    meta(doc, [
+    meta(outerDoc, [
       'meta[property="article:published_time"]', 'meta[name="publish-date"]',
       'meta[name="date"]', 'meta[itemprop="datePublished"]', "time[datetime]",
-    ]),
+    ]) ?? meta(doc, ["time[datetime]"]),
   );
 
   // All three of these read the document before Readability mutates it. The
@@ -326,6 +390,34 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
   const freeFlag = meta(doc, ['meta[name="isAccessibleForFree"]', 'meta[itemprop="isAccessibleForFree"]']);
   const declaredPaywalled =
     freeFlag?.toLowerCase() === "false" || /"isAccessibleForFree"\s*:\s*(?:false|"false")/i.test(html);
+
+  // An unwrapped document is already the article. Readability exists to find an
+  // article inside a page of navigation, sidebars and comments; a newsletter has
+  // none of that, and run against one it scores a section of one-line links as
+  // low-density furniture and discards it. That loses editorial content with
+  // nothing on the page to show that anything went missing, which is the exact
+  // failure this service exists to prevent.
+  //
+  // Measured on one issue of a Wealthsimple TLDR newsletter: through Readability
+  // 57 blocks and 9,022 characters, whole 99 blocks and 10,834 characters. The
+  // difference is an entire section of the issue. What rides along instead is
+  // four visible lines of footer, which a reader can see and delete.
+  if (embeddedDoc) {
+    const contentHtml = embeddedDoc.body?.innerHTML ?? "";
+    const textLength = (embeddedDoc.body?.textContent ?? "").trim().length;
+
+    return {
+      title: metaTitle,
+      byline: metaByline,
+      siteName: siteName || new URL(finalUrl).hostname.replace(/^www\./, ""),
+      publishedAt,
+      contentHtml,
+      textLength,
+      finalUrl,
+      footnotes,
+      leadImage,
+    };
+  }
 
   let parsed: ReturnType<Readability["parse"]>;
   try {
@@ -355,7 +447,11 @@ export function extractArticle(html: string, finalUrl: string): ExtractedArticle
   }
 
   return {
-    title: parsed.title?.trim() || metaTitle,
+    // Readability titles an embedded newsletter from its own <head>, which is
+    // the sender's brand ("Wealthsimple") and not the issue's headline. The
+    // archive page around it is the only place the headline exists, so where a
+    // document was unwrapped the outer page's title outranks Readability's.
+    title: embeddedDoc ? metaTitle || parsed.title?.trim() || null : parsed.title?.trim() || metaTitle,
     byline: parsed.byline?.trim() || metaByline,
     siteName: parsed.siteName?.trim() || siteName || new URL(finalUrl).hostname.replace(/^www\./, ""),
     publishedAt,

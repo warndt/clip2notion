@@ -260,8 +260,20 @@ export function plainTextLength(items: RichText[]): number {
  * A block's rich_text array is itself capped at 100 objects, so a very long
  * paragraph becomes several blocks of the same type rather than a truncated one.
  */
+/**
+ * Characters that occupy a block without showing anything: zero-width spaces and
+ * joiners, word joiners, byte-order marks, non-breaking spaces. HTML email pads
+ * its layout with them, and builds a preheader out of hundreds in a row.
+ *
+ * Tested per block rather than per character, because a zero-width joiner inside
+ * a word is meaningful in several scripts. Only a block made of nothing else is
+ * a spacer, and a spacer is not content.
+ */
+const INVISIBLE_ONLY = /^[\s\u00a0\u200b-\u200f\u2028\u2029\u2060\ufeff]*$/;
+
 function blocksFromRichText(type: string, items: RichText[], extra: Record<string, unknown> = {}): Block[] {
   if (items.length === 0) return [];
+  if (INVISIBLE_ONLY.test(items.map((item) => item.text.content).join(""))) return [];
   const limit = TUNABLES.richTextArrayLimit;
   const blocks: Block[] = [];
   for (let i = 0; i < items.length; i += limit) {
@@ -552,7 +564,52 @@ function tableFallback(el: Element, reason: string): Block[] {
   ];
 }
 
+/**
+ * Cells belonging to this table, excluding any that belong to a nested one.
+ * `querySelectorAll` reaches straight through nested tables, which is how a
+ * layout email produced a grid measured at 134 rows by 162 columns.
+ */
+function ownCells(el: Element): Element[] {
+  return Array.from(el.querySelectorAll("td, th")).filter((cell) => cell.closest("table") === el);
+}
+
+/**
+ * Is this table page furniture rather than data?
+ *
+ * HTML email is built entirely from nested tables — they are the only layout
+ * primitive that survives Outlook — so a newsletter arrives as dozens of tables
+ * that carry no tabular meaning at all. Converting those to Notion tables gives
+ * a column of one-cell tables; the merged-cell and nested-table fallbacks fire
+ * instead and dump raw HTML into a code block. Measured on one newsletter: 83
+ * tables, of which 81 were pure layout, and the clip came out as 82,350
+ * characters of markup in a code block.
+ *
+ * The three tests are deliberately narrow, because being wrong here loses a real
+ * table's shape. A table declaring `role="presentation"` says outright that it is
+ * layout. A table wrapping another table is scaffolding. A table with one cell has
+ * no grid to lose. Anything carrying `th` or `thead` is data and is never touched.
+ */
+function isLayoutTable(el: Element): boolean {
+  if ((el.getAttribute("role") ?? "").toLowerCase() === "presentation") return true;
+  if (el.querySelector("th, thead")) return false;
+  if (el.querySelector("table")) return true;
+  return ownCells(el).length <= 1;
+}
+
+/**
+ * Emit a layout table's cells as ordinary block content, in document order.
+ * Nested tables are reached through `walkChildren`, so each one is judged on its
+ * own merits and a data table inside a layout wrapper still becomes a table.
+ */
+function flattenLayoutTable(el: Element, ctx: Ctx): Block[] {
+  const blocks: Block[] = [];
+  for (const cell of ownCells(el)) blocks.push(...walkChildren(cell, ctx));
+  return blocks;
+}
+
 function convertTable(el: Element, ctx: Ctx): Block[] {
+  if (isLayoutTable(el)) return flattenLayoutTable(el, ctx);
+
   const rows = Array.from(el.querySelectorAll("tr"));
   if (rows.length === 0) return [];
 

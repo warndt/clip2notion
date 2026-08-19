@@ -55,6 +55,11 @@ export const TUNABLES = {
   /** Below this many characters of extracted text, assume extraction failed. */
   minArticleChars: num("MIN_ARTICLE_CHARS", 400),
 
+  /** An attribute shorter than this is never a whole embedded HTML document.
+   *  Only a value passing this length is parsed, so the scan stays cheap on
+   *  pages that carry large JSON payloads in data- attributes. */
+  embeddedDocumentMinChars: num("EMBEDDED_DOCUMENT_MIN_CHARS", 2000),
+
   /** Notion hard limits. Not tunable in any meaningful sense — documented here so
    *  the numbers have names at their call sites. */
   richTextCharLimit: 2000,

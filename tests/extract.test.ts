@@ -8,7 +8,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertSafeUrl, extractArticle, fetchArticle, metaRefreshTarget } from "../src/extract";
+import {
+  assertSafeUrl, extractArticle, fetchArticle, findEmbeddedDocument, metaRefreshTarget,
+} from "../src/extract";
+import { JSDOM } from "jsdom";
 import { ClipError } from "../src/errors";
 
 function codeOf(fn: () => unknown): string {
@@ -272,4 +275,88 @@ test("a real subscribe wall is still reported as a paywall", () => {
 test("a page with no article is reported as not extractable, not as an empty clip", () => {
   const html = page("<div><h1>Links</h1><ul><li>One</li><li>Two</li></ul></div>", "<title>Links</title>");
   assert.equal(codeOf(() => extractArticle(html, "https://example.com/a")), "NOT_EXTRACTABLE");
+});
+
+// --- Articles parked in an attribute ---------------------------------------
+//
+// An email-archive viewer stores the newsletter as a string on a custom element
+// and paints it with a script. We run no scripts, so the element arrives empty
+// and the only prose left is a plain-text fallback whose structure is newline
+// characters — which collapse into one 10,000-character paragraph carrying none
+// of the article's images. Nothing about that result looks like a failure.
+
+/** A whole HTML document, big enough to clear the length and prose thresholds. */
+function embeddedNewsletter(extra = ""): string {
+  // Comfortably past `embeddedDocumentMinChars`: an attribute below that length
+  // is never parsed, which is what keeps the scan cheap on data- payloads.
+  const body = Array.from(
+    { length: 30 },
+    (_, i) => `<tr><td><div>Section ${i} of the newsletter, with enough prose to count as an article.</div></td></tr>`,
+  ).join("");
+  return (
+    `<!DOCTYPE html><html><head><title>Sender Brand</title></head><body>` +
+    `<table role="presentation">${body}</table>${extra}</body></html>`
+  );
+}
+
+function hostPage(attrValue: string, headline = "The real headline"): string {
+  return page(
+    `<archive-component contents="${attrValue.replace(/"/g, "&quot;")}"></archive-component>` +
+      `<details><div>A short plain-text fallback copy.</div></details>`,
+    `<title>${headline}</title>`,
+  );
+}
+
+test("an article stored in an attribute is recovered", () => {
+  const doc = new JSDOM(hostPage(embeddedNewsletter()), { url: "https://archive.test/33" }).window.document;
+  const found = findEmbeddedDocument(doc, "https://archive.test/33");
+
+  assert.ok(found, "the embedded document should be found");
+  assert.match(found.body.textContent ?? "", /Section 7 of the newsletter/);
+});
+
+test("a short attribute is never mistaken for a document", () => {
+  const doc = new JSDOM(page('<div data-config=\'{"a":1}\'>Body text here.</div>')).window.document;
+  assert.equal(findEmbeddedDocument(doc, "https://archive.test/"), null);
+});
+
+test("an attribute that is not a whole document is ignored", () => {
+  // Long enough to pass the length gate, but no <html>/<body> of its own.
+  const blob = "x".repeat(5000);
+  const doc = new JSDOM(page(`<div data-json="${blob}">Body text here.</div>`)).window.document;
+  assert.equal(findEmbeddedDocument(doc, "https://archive.test/"), null);
+});
+
+test("a rendered element outranks its own stored copy", () => {
+  // If the host already shows more text than it stores, the live DOM is the
+  // better source and unwrapping would be a step backwards.
+  const stored = embeddedNewsletter();
+  const doc = new JSDOM(
+    page(`<div data-html="${stored.replace(/"/g, "&quot;")}">${"Visible prose. ".repeat(2000)}</div>`),
+  ).window.document;
+  assert.equal(findEmbeddedDocument(doc, "https://archive.test/"), null);
+});
+
+test("an unwrapped newsletter keeps the section a prose scorer would drop", () => {
+  // The point of skipping Readability for these. A run of one-line links scores
+  // as furniture and vanishes, taking a section of the issue with it.
+  const roundup =
+    '<table role="presentation">' +
+    ["Lululemon bag goes viral", "7UP rebrands", "Pubs ban AI glasses"]
+      .map((line) => `<tr><td><div><a href="https://example.com">${line}</a> Source</div></td></tr>`)
+      .join("") +
+    "</table>";
+
+  const article = extractArticle(hostPage(embeddedNewsletter(roundup)), "https://archive.test/33");
+
+  for (const line of ["Lululemon", "7UP", "AI glasses"]) {
+    assert.ok(article.contentHtml.includes(line), `expected the roundup to keep "${line}"`);
+  }
+});
+
+test("the archive page titles the clip, not the sender's brand", () => {
+  // Readability names an embedded newsletter from its own <head>, which is the
+  // sender ("Sender Brand"). The issue headline exists only on the outer page.
+  const article = extractArticle(hostPage(embeddedNewsletter()), "https://archive.test/33");
+  assert.equal(article.title, "The real headline");
 });
