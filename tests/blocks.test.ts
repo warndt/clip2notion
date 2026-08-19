@@ -688,3 +688,54 @@ test("promoting a heading never loses its text", () => {
 
   assert.equal(totalChars(withHeading), totalChars(plain) + "Finance 101".length);
 });
+
+// --- The header image that arrived twice -----------------------------------
+//
+// Email ships a light-mode and a dark-mode copy of its masthead and hides one
+// with inline CSS. Both were clipped, so the hero image appeared twice.
+
+const HIDDEN = 'style="display:none"';
+
+test("a hidden image is dropped when a visible copy exists", () => {
+  const blocks = htmlToBlocks(
+    `<img src="/logo.png" class="light-img"><img src="/logo.png" class="dark-img" ${HIDDEN}>`,
+    "https://example.com/",
+  ).blocks;
+
+  const images = blocks.filter((b) => b.type === "image");
+  assert.equal(images.length, 1);
+});
+
+test("a hidden image with no visible copy is still clipped", () => {
+  // Requirement 1: an image is never removed outright. A site that hides an
+  // image and reveals it with a script has no visible copy to fall back on.
+  const blocks = htmlToBlocks(`<img src="/only-copy.png" ${HIDDEN}>`, "https://example.com/").blocks;
+  assert.equal(blocks.filter((b) => b.type === "image").length, 1);
+});
+
+test("the surviving copy is the one a reader would have seen", () => {
+  // Hidden first, visible second: the visible one must still be what lands.
+  const blocks = htmlToBlocks(
+    `<img src="/hero.png" ${HIDDEN} alt="hidden copy"><img src="/hero.png" alt="visible copy">`,
+    "https://example.com/",
+  ).blocks;
+
+  const images = blocks.filter((b) => b.type === "image");
+  assert.equal(images.length, 1);
+  const caption = (payload(images[0]!)["caption"] as RichText[]).map((r) => r.text.content).join("");
+  assert.equal(caption, "visible copy");
+});
+
+test("two different hidden images are both kept", () => {
+  const blocks = htmlToBlocks(
+    `<img src="/one.png" ${HIDDEN}><img src="/two.png" ${HIDDEN}>`,
+    "https://example.com/",
+  ).blocks;
+  assert.equal(blocks.filter((b) => b.type === "image").length, 2);
+});
+
+test("a visible image is never dropped for another visible one", () => {
+  // A gallery legitimately repeats a picture; only a hidden copy is redundant.
+  const blocks = htmlToBlocks('<img src="/same.png"><img src="/same.png">', "https://example.com/").blocks;
+  assert.equal(blocks.filter((b) => b.type === "image").length, 2);
+});

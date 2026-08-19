@@ -48,6 +48,10 @@ interface Ctx {
   /** The size this document sets prose in, or null where it sets no sizes by
    *  hand. Null disables style-based headings entirely. */
   bodyFontSize: number | null;
+  /** URLs carried by at least one *visible* image in this document. A hidden
+   *  image is dropped only when its URL is in here, so a copy is never the last
+   *  one. Empty means nothing is ever dropped. */
+  visibleImageUrls: Set<string>;
 }
 
 // --- Rich text -------------------------------------------------------------
@@ -252,7 +256,7 @@ export function splitRichText(items: RichText[]): RichText[] {
 export function richTextFrom(el: Element, baseUrl: string): RichText[] {
   const out: RichText[] = [];
   // Rich text only: there is no block to promote, so headings never apply.
-  collectRichText(el, { baseUrl, depth: 0, bodyFontSize: null }, {}, null, out);
+  collectRichText(el, { baseUrl, depth: 0, bodyFontSize: null, visibleImageUrls: new Set() }, {}, null, out);
   return splitRichText(tidy(out));
 }
 
@@ -492,10 +496,38 @@ function holdsOnlyImages(el: Element): boolean {
   return (el.textContent ?? "").trim().length === 0 && el.querySelector("img, picture") !== null;
 }
 
+/**
+ * Hidden by its own inline CSS. Email ships a light-mode and a dark-mode copy of
+ * its masthead and hides one of them, so a clip shows the header image twice.
+ */
+function isHiddenByStyle(el: Element): boolean {
+  return /display\s*:\s*none/i.test(el.getAttribute("style") ?? "");
+}
+
+/**
+ * URLs that appear on at least one visible image.
+ *
+ * The dedupe is deliberately asymmetric: a hidden image is dropped only when the
+ * same URL is also on a visible one, so the copy that survives is always the one
+ * a reader would have seen and an image is never removed outright. A site that
+ * hides an image and reveals it with a script still gets clipped, because
+ * nothing visible claims that URL.
+ */
+function visibleImageUrls(root: Element, baseUrl: string): Set<string> {
+  const urls = new Set<string>();
+  for (const img of Array.from(root.querySelectorAll("img, picture"))) {
+    if (isHiddenByStyle(img)) continue;
+    const url = pickImageUrl(img, baseUrl);
+    if (url) urls.add(url);
+  }
+  return urls;
+}
+
 function convertImage(el: Element, ctx: Ctx, caption: RichText[] = []): Block[] {
   if (isSpacer(el)) return [];
   const url = pickImageUrl(el, ctx.baseUrl);
   if (!url) return [];
+  if (isHiddenByStyle(el) && ctx.visibleImageUrls.has(url)) return [];
   const alt = el.getAttribute("alt")?.trim();
   const finalCaption =
     caption.length > 0 ? caption : alt ? [makeRichText(alt, {}, null)] : [];
@@ -1039,6 +1071,7 @@ export function htmlToBlocks(html: string, baseUrl: string): ConversionResult {
     baseUrl,
     depth: 0,
     bodyFontSize: documentBodyFontSize(body),
+    visibleImageUrls: visibleImageUrls(body, baseUrl),
   });
 
   if (blocks.length > TUNABLES.maxBlocks) {
@@ -1121,7 +1154,12 @@ export function footnoteBlocks(
     holder.innerHTML = footnote.html;
 
     // A footnote is prose by definition; nothing inside one is a section title.
-    const body = walkChildren(holder, { baseUrl, depth: 0, bodyFontSize: null });
+    const body = walkChildren(holder, {
+      baseUrl,
+      depth: 0,
+      bodyFontSize: null,
+      visibleImageUrls: new Set(),
+    });
     const label = makeRichText(`${footnote.number}. `, { bold: true }, null);
 
     const first = body[0];

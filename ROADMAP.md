@@ -326,6 +326,16 @@ Reported from the live clip on 2026-08-19, after the deploy above. The clip was 
 
 Result on the reported article: **9 `heading_2` and 10 `heading_3`**, matching the newsletter's real sections. The block count and the character count did not change, so the headings are promoted paragraphs and nothing was added or lost. MDN `Cache-Control` is unchanged at 35 headings, 30 code blocks and 2 tables.
 
+### The header image that arrived twice
+
+Reported from the second live clip on 2026-08-19. Email ships a light-mode and a dark-mode copy of its masthead — `class="light-img"` with `display:block` and `class="dark-img"` with `display:none` — and both were clipped, so the hero image appeared twice.
+
+- ✅ An image hidden by its own inline `display:none` is dropped **only when the same URL is also on a visible image**. The dedupe is deliberately asymmetric, because requirement 1 says the service must never remove an image. A site that hides an image and reveals it with a script has no visible copy claiming that URL, so it is still clipped.
+- ✅ The copy that survives is the one a reader would have seen, whichever order the two appear in.
+- ✅ 5 tests, including a hidden image with no visible copy, two different hidden images, and a gallery that legitimately repeats a picture.
+
+Result: 7 images to 6, exactly one masthead, every other image intact. The text and the headings did not change.
+
 **Complete when:** Wil reviews the work, and a real clip of an email-archive newsletter shows the structure, the images, the roundup section, and the section headings. First half deployed on 2026-08-19 and confirmed by a live clip (`CLIPPED`). The headings are a second deploy.
 
 ---
