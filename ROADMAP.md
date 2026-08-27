@@ -340,7 +340,7 @@ Result: 7 images to 6, exactly one masthead, every other image intact. The text 
 
 ---
 
-## M8 — A PDF is not an article 🟡
+## M8 — A PDF is not an article ✅
 
 **The problem.** A PDF URL was fetched, decoded as mojibake, given to Readability, and failed as `NOT_EXTRACTABLE`: "It may be a landing page, a video, or rendered entirely in JavaScript." None of those is true of a PDF. The service was confidently wrong, which is the failure this project exists to prevent.
 
@@ -367,7 +367,14 @@ Recorded so it is not re-proposed from scratch. A prototype was built and a surv
 - 46% of these PDFs have a null or empty `Info.Title`. One was a `file:///Users/<name>/Downloads/…​.html` path — a browser print-to-PDF artefact that would have published a stranger's local path and username into Notion. **Reject a title on its shape, never against a list of known-bad names.**
 - Roughly a third of stored PDF links are `http://`. Notion refuses a non-SSL file import, so those degrade to a link. That is requirement 1's designed fallback, and `pdf_degraded` logs it.
 
-**Complete when:** Wil reviews the work, and a real PDF clip in `attach` mode shows the header, the notice, and the stored file.
+**Complete when:** Wil reviews the work, and a real PDF clip in `attach` mode shows the header, the notice, and the stored file. **Complete on 2026-08-26.** `PDF_MODE=attach` is live and `/health` reports it, which is how the env change was confirmed to have reached the running function rather than only the Netlify UI. A real PDF clipped and was reviewed.
+
+The caller's system prompt gained a matching change: for a PDF it writes a summary itself — the one exception to the rule that it never writes body content — because the service leaves a PDF page with nothing readable and the calling session can open a PDF directly. Two ordering rules make that safe, and both come from this code rather than from guesswork:
+
+- **The summary is written after the clip is confirmed, never before.** The duplicate guard at the top of `runClip` treats *any* existing block linking to the article URL as proof the page is already clipped. A summary written first that mentions the source URL would make the clip write nothing at all, and the page would then read as `FOREIGN_CONTENT` or `NOT_STARTED` — neither of which names the cause.
+- **The summary carries no link to the source URL**, for the same reason, on any later re-clip.
+
+A summarised PDF stays `To read` with no `Date actioned`. A summary is something the service's caller did; it says nothing about whether the reader has dealt with the document. `AI summarized` is set only when Wil asks for it by name.
 
 ---
 
