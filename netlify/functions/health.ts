@@ -72,6 +72,11 @@ export default async function handler(_req: Request, context?: NetlifyContext): 
     config: {
       notion_api_version: process.env.NOTION_API_VERSION ?? "(pinned default)",
       lead_image_mode: TUNABLES.leadImageMode,
+      // Reported for the same reason as lead_image_mode: an env change does not
+      // reach a live function without a redeploy, so "I set it in the UI" and
+      // "the running code sees it" are different claims. This is the one that
+      // answers the second.
+      pdf_mode: TUNABLES.pdfMode,
       max_blocks: TUNABLES.maxBlocks,
       max_images: TUNABLES.maxImages,
     },
