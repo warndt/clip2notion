@@ -181,6 +181,12 @@ Never use it for a first attempt. It deletes the clip that exists before it writ
 
 The selection is strict on purpose. A lost main image is a small loss. A site logo at the top of each clip is a visible defect on each page. The service rejects site logos, author photographs, event advertisements, and tracking pixels. If the main image is already in the body of the article, the service does not insert it a second time.
 
+**A PDF is stored, and it is never read.** When the URL is a PDF, the service does not extract the text. It writes a header, a notice that says the text was not extracted, and the file itself, so the document stays available after the source website removes it. `clip_status` reports `CLIPPED`, because storing the file is the whole of what the service promises for a PDF. **Do not tell the user that the text of the PDF is on the page. It is not.**
+
+You can read a PDF yourself. Therefore the useful action is: open the URL, write a summary onto the page, and call `clip_article` so that the file is stored. The `AI summarized` status exists for this.
+
+Two limits apply to a PDF. The service refuses a PDF when its operator sets `PDF_MODE` to `detect` or `off`; the message says so and nothing is written. And Notion refuses a file from a `http://` URL, so the service keeps a link to the source instead of a stored copy. Roughly one PDF in three is affected. Nothing is lost and nothing else changes.
+
 **Paywalls and login walls are out of scope by design.** The service reads the URL from a server with no session and cannot log in. It detects the wall and fails with a visible message, before it writes anything. The alternative is the Notion Web Clipper browser extension. The system prompt must say this, because it is the next action of the user.
 
 **A website that refuses the request is a different failure, and the message says so.** Bot protection at the edge of a website can refuse a request from a server and supply the same article to any browser. The refusal applies to the client that makes the request and not to an anonymous reader. No account changes this. Therefore the message gives the name of the website, the HTTP status, and a clear statement that this is not a paywall and that a login does not help.
@@ -250,6 +256,8 @@ If the tools do not appear after a change, disconnect the connector and add it a
 - **Paywall detection uses rules that can be incorrect.** A partial paywall that supplies a long sample with no recognised subscribe text can produce a clip with a `CLIPPED` result. If a clip stops in the middle of an article, this is the probable cause.
 - **Some websites refuse this service, whatever it sends.** Bot protection can evaluate the **client** and not the reader. It refuses a request from Node because of the TLS fingerprint, before it examines the headers. Measured on `ecuad.ca`: curl and Python received the article from the same machine and the same IP address that received a 403 for Node, and browser-like headers changed nothing. Use the Web Clipper for these websites until the website changes its settings. There is no correction inside the service.
 - **The service removes an image inside a table cell.** A Notion cell holds only rich text.
+- **The service never reads the text inside a PDF.** It stores the file. This is a decision and not a defect: seventeen PDFs in seven years, three of them with no text layer at all, and a caller that can already open a PDF itself. `ROADMAP.md` records the measurements.
+- **A PDF at a `http://` address is not stored.** Notion refuses a file import that does not use SSL, so the clip keeps a link to the source. About one PDF in three is affected.
 
 ---
 

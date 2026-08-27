@@ -52,6 +52,32 @@ export const TUNABLES = {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 
+  /**
+   * What to do when the target URL is a PDF rather than an HTML page.
+   *
+   * `off` skips the check entirely, so `fetchArticle` behaves exactly as it did
+   * before this existed: a PDF is decoded as mojibake, handed to Readability,
+   * and fails as NOT_EXTRACTABLE with a message about landing pages and
+   * JavaScript. That message is wrong, which is why `off` is not the endpoint.
+   *
+   * `detect` recognises the PDF and fails with an accurate message. It writes
+   * no content.
+   *
+   * `attach` stores the file itself on the page — a header, a notice, and a PDF
+   * block Notion imports from the source URL. **It never extracts the text.**
+   *
+   * Full text extraction was investigated and declined on evidence; the case is
+   * recorded in ROADMAP.md so it is not re-proposed from scratch. The short
+   * version: seventeen PDFs in seven years, a quarter of them already dead
+   * links, and a caller that can already read a PDF itself.
+   *
+   * An unrecognised value behaves as `detect` — the safe direction for a typo,
+   * since it writes nothing and still tells the truth.
+   *
+   * ⚠️ A Netlify env change does not reach live functions without a redeploy.
+   */
+  pdfMode: (process.env.PDF_MODE || "off").toLowerCase(),
+
   /** Below this many characters of extracted text, assume extraction failed. */
   minArticleChars: num("MIN_ARTICLE_CHARS", 400),
 

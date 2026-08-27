@@ -19,7 +19,8 @@ import { log } from "./log";
 import { extractArticle, fetchArticle } from "./extract";
 import {
   clipHeader, collectImageBlocks, errorCallout, footnoteBlocks, htmlToBlocks, leadImageBlock,
-  statusCallout, ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER, STATUS_MARKER, type Block,
+  pdfBlock, pdfNoticeCallout, statusCallout, ERROR_MARKER, HEADER_PREFIX, PARTIAL_WRITE_MARKER,
+  STATUS_MARKER, type Block,
 } from "./blocks";
 import { normalizeImageUrl, type LeadImageResult } from "./lead-image";
 import {
@@ -117,7 +118,48 @@ export async function runClip(request: ClipRequest, config: Config, clipId: stri
   let contentWritten = false;
 
   try {
-    const fetched = await fetchArticle(request.url);
+    const fetched = await fetchArticle(request.url, TUNABLES.pdfMode);
+
+    if (fetched.kind === "pdf") {
+      // `detect` recognises the PDF and says so, but writes nothing. It exists
+      // so the wrong message can be retired before the attachment behaviour is
+      // trusted, the way LEAD_IMAGE_MODE earned `insert`.
+      if (TUNABLES.pdfMode !== "attach") {
+        log("info", clipId, "pdf_detected", { url: fetched.finalUrl, mode: TUNABLES.pdfMode });
+        throw errors.pdfNotExtracted();
+      }
+
+      const attachment = pdfBlock(fetched.finalUrl);
+      await importPdf(client, attachment, fetched.finalUrl, clipId);
+
+      // The header ships in the same call as the content it belongs to, so a
+      // run that dies mid-write still leaves the idempotency key behind.
+      const pdfBatches = buildAppendBatches(
+        clipHeader({
+          title: pdfTitleFrom(fetched.finalUrl),
+          siteName: hostnameOf(fetched.finalUrl),
+          byline: null,
+          publishedAt: null,
+          url: request.url,
+        }),
+        [pdfNoticeCallout(), attachment],
+        TUNABLES.appendBatchSize,
+      );
+      for (const batch of pdfBatches) {
+        await client.appendChildren(request.pageId, batch);
+        contentWritten = true;
+      }
+
+      if (statusBlockId) {
+        await client.deleteBlock(statusBlockId).catch((err) => {
+          log("warn", clipId, "status_cleanup_failed", { error: String(err) });
+        });
+      }
+
+      log("info", clipId, "pdf_clipped", { url: fetched.finalUrl });
+      return "clipped";
+    }
+
     const article = extractArticle(fetched.html, fetched.finalUrl);
 
     log("info", clipId, "extracted", {
@@ -389,6 +431,78 @@ const MIME_EXTENSIONS: Record<string, string> = {
 function sanitizeStem(stem: string): string {
   const cleaned = stem.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
   return cleaned || "image";
+}
+
+export function hostnameOf(rawUrl: string): string | null {
+  try {
+    return new URL(rawUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A readable title for a PDF, derived from its URL.
+ *
+ * The service does not open the file, so the URL is all there is. A slug is a
+ * better page title than nothing, but only after the separators come out —
+ * `good_fonts_for_dyslexia_study` is not a title, `good fonts for dyslexia
+ * study` is. Returns null rather than a guess when the last segment carries no
+ * words, and `clipHeader` simply omits the title in that case.
+ */
+export function pdfTitleFrom(rawUrl: string): string | null {
+  let segment: string;
+  try {
+    segment = decodeURIComponent(new URL(rawUrl).pathname.split("/").filter(Boolean).pop() ?? "");
+  } catch {
+    return null;
+  }
+
+  const words = segment
+    .replace(/\.pdf$/i, "")
+    .replace(/[_+-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // A hash or an id is not a title. Require a letter somewhere.
+  return words && /\p{L}/u.test(words) ? words.slice(0, 200) : null;
+}
+
+/**
+ * Store the PDF in Notion, or leave it as a link.
+ *
+ * Deliberately not folded into `importImages`: that walks a whole tree looking
+ * for `image` blocks and a clip has exactly one PDF, handed to us directly. A
+ * failure here is not an error — requirement 1 says degrade to a link, never
+ * drop — but it is logged, because a silent degradation is how the four
+ * Divisare drawings sat on someone else's server unnoticed.
+ */
+async function importPdf(
+  client: NotionClient,
+  block: Block,
+  url: string,
+  clipId: string,
+): Promise<void> {
+  // Notion's importer refuses a non-SSL URL outright. Measured across the real
+  // Resources library: roughly a third of stored PDF links are still http://,
+  // so this is the common path, not the exception.
+  if (!url.startsWith("https://")) {
+    log("warn", clipId, "pdf_degraded", { url, reason: "not https" });
+    return;
+  }
+
+  const stem = sanitizeStem(
+    decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() ?? "")
+      .replace(/\.pdf$/i, ""),
+  );
+  const uploadId = await client.importExternalFile(url, `${stem}.pdf`);
+  if (!uploadId) {
+    log("warn", clipId, "pdf_degraded", { url, reason: "import rejected by Notion" });
+    return;
+  }
+
+  block["pdf"] = { type: "file_upload", file_upload: { id: uploadId }, caption: [] };
+  log("info", clipId, "pdf_stored", { url });
 }
 
 /**

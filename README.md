@@ -140,6 +140,7 @@ Set these environment variables in **Site configuration → Environment variable
 | `RESOURCES_DATA_SOURCE_ID` | yes | The value from step 2. There is no default value. Refer to [Security](#security). |
 | `NOTION_API_VERSION` | no | The default value is the current version. Notion changes this value. Read the Notion documentation. |
 | `LEAD_IMAGE_MODE` | no | `insert` (default), `detect` (writes a log message but does not change the page), or `off` |
+| `PDF_MODE` | no | `off` (default, the check does not run), `detect` (recognises a PDF and fails with an accurate message), or `attach` (stores the file on the page). **No value extracts text from a PDF.** |
 
 ⚠️ If you change an environment variable in Netlify, the change does not go to the functions until you deploy again.
 

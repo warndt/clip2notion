@@ -81,11 +81,36 @@ async function readCapped(response: Response): Promise<Uint8Array> {
   return merged;
 }
 
-export interface FetchResult {
-  html: string;
-  finalUrl: string;
-  status: number;
+/** The first five bytes of every PDF, by spec. */
+const PDF_MAGIC = "%PDF-";
+
+/**
+ * Is this response a PDF rather than an HTML page?
+ *
+ * Two signals, because each one alone is wrong on real URLs. The Content-Type
+ * header is the cheap one and is usually right, but servers hand out
+ * `application/octet-stream` and `binary/octet-stream` for PDFs often enough
+ * that trusting it alone misses them. The magic bytes are ground truth but
+ * require reading the body, which the header check lets us skip.
+ *
+ * `head` may be empty when only the header was consulted.
+ */
+export function sniffPdf(contentType: string | null, head: Uint8Array): boolean {
+  if (contentType && /^\s*application\/(x-)?pdf\b/i.test(contentType)) return true;
+  if (head.length < PDF_MAGIC.length) return false;
+  return new TextDecoder("latin1").decode(head.subarray(0, PDF_MAGIC.length)) === PDF_MAGIC;
 }
+
+/**
+ * A fetch returns one of two kinds of thing, and they are not interchangeable.
+ *
+ * The PDF arm carries no body: nothing downstream reads the bytes, because
+ * Notion imports the file from the source URL itself. That is the whole reason
+ * PDF support costs almost nothing — see TUNABLES.pdfMode.
+ */
+export type FetchResult =
+  | { kind: "html"; html: string; finalUrl: string; status: number }
+  | { kind: "pdf"; finalUrl: string; status: number };
 
 /**
  * Some sites answer a moved URL with a 200 whose body is a redirect stub — a
@@ -121,7 +146,10 @@ export function metaRefreshTarget(html: string, baseUrl: string): string | null 
  * Follows redirects by hand so every hop gets the safety check, not just the
  * URL we were handed.
  */
-export async function fetchArticle(rawUrl: string): Promise<FetchResult> {
+export async function fetchArticle(
+  rawUrl: string,
+  pdfMode: string = TUNABLES.pdfMode,
+): Promise<FetchResult> {
   let current = assertSafeUrl(rawUrl);
 
   for (let hop = 0; hop <= TUNABLES.maxRedirects; hop++) {
@@ -170,8 +198,29 @@ export async function fetchArticle(rawUrl: string): Promise<FetchResult> {
         throw errors.fetchRejected(response.status, current.href);
       }
 
+      const contentType = response.headers.get("content-type");
+
+      // ⚠️ Gated on the mode, not on the branch below it. With PDF_MODE=off
+      // nothing here runs, `readCapped` uses the same cap it always did, and
+      // this function is byte-for-byte what it was before PDFs existed. A
+      // sniff-then-ignore would break that guarantee for no benefit.
+      const pdfEnabled = pdfMode !== "off";
+
+      // The header alone settles most PDFs, and settling it here means never
+      // downloading the file: Notion imports it from the source URL.
+      if (pdfEnabled && sniffPdf(contentType, new Uint8Array())) {
+        await response.body?.cancel().catch(() => {});
+        return { kind: "pdf", finalUrl: current.href, status: response.status };
+      }
+
       const body = await readCapped(response);
-      const charset = charsetFrom(response.headers.get("content-type"), body);
+
+      // The header lied or was absent. The magic bytes do not.
+      if (pdfEnabled && sniffPdf(null, body)) {
+        return { kind: "pdf", finalUrl: current.href, status: response.status };
+      }
+
+      const charset = charsetFrom(contentType, body);
       let html: string;
       try {
         html = new TextDecoder(charset).decode(body);
@@ -185,7 +234,7 @@ export async function fetchArticle(rawUrl: string): Promise<FetchResult> {
         continue;
       }
 
-      return { html, finalUrl: current.href, status: response.status };
+      return { kind: "html", html, finalUrl: current.href, status: response.status };
     } finally {
       clearTimeout(timer);
     }

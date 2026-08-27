@@ -125,6 +125,26 @@ export const errors = {
       { detail },
     ),
 
+  /**
+   * The URL is a PDF, and this service does not read PDF text.
+   *
+   * Separate from `notExtractable` because that message names causes a PDF does
+   * not have — a landing page, a video, JavaScript rendering — and sends the
+   * reader to the Web Clipper, which does no better on a PDF. Being wrong in a
+   * confident voice is the failure this project exists to avoid, and the
+   * original message was wrong in exactly that way.
+   *
+   * Non-transient: a PDF will still be a PDF on the retry.
+   */
+  pdfNotExtracted: () =>
+    new ClipError(
+      "NOT_EXTRACTABLE",
+      "This is a PDF, and the service doesn't read the text inside PDFs. Nothing was " +
+        "written. Ask Claude to read the PDF and write a summary onto the page instead — " +
+        "it can open a PDF directly.",
+      { detail: "PDF_MODE=detect" },
+    ),
+
   notionFailed: (detail: string, transient: boolean, cause?: unknown) =>
     new ClipError("NOTION_FAILED", "Notion rejected the write.", { transient, detail, cause }),
 

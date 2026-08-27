@@ -340,9 +340,44 @@ Result: 7 images to 6, exactly one masthead, every other image intact. The text 
 
 ---
 
+## M8 — A PDF is not an article 🟡
+
+**The problem.** A PDF URL was fetched, decoded as mojibake, given to Readability, and failed as `NOT_EXTRACTABLE`: "It may be a landing page, a video, or rendered entirely in JavaScript." None of those is true of a PDF. The service was confidently wrong, which is the failure this project exists to prevent.
+
+**What was built.** `PDF_MODE`, with three values. `off` (the shipping default) does not run the check at all, so `fetchArticle` is byte-for-byte what it was. `detect` recognises the PDF and fails with an accurate message. `attach` writes a header, a notice saying the text was not extracted, and a PDF block that Notion imports from the source URL. **No mode extracts text.**
+
+Detection uses two signals, because each alone is wrong on real URLs: the `Content-Type` header (cheap, lets the body be skipped entirely) and the `%PDF-` magic bytes at offset zero (ground truth, catches the servers that send `application/octet-stream`). The PDF arm of `FetchResult` carries **no body** — Notion fetches the file itself, which is why this costs almost nothing.
+
+### Full text extraction was investigated and declined (2026-08-26)
+
+Recorded so it is not re-proposed from scratch. A prototype was built and a survey run against every PDF in the live Resources data source. **Nothing was written to `src/` before the evidence was in.**
+
+**Volume.** 17 PDFs since July 2019 — seven years. By year: 1, 5, 4, 3, 1, 0, 0, 3. Zero in 2024 and 2025. Roughly 1–2% of clipping volume against a few articles a week.
+
+**Yield.** Of the 13 that could still be fetched, 3 have no text layer at all and 2 are multi-column and would have been refused. So the entire extraction stack — pdfjs, column detection, heading inference, table tiers, running-head stripping — would have produced readable text for about 8 documents in seven years. Roughly one a year.
+
+**The caller already reads PDFs.** The claude.ai session that calls this service can open a PDF URL directly and did so in testing, returning title, authors, date, structure and appendix. It sets every page property *before* calling `clip_article`, so extraction could never have informed categorisation anyway.
+
+**What the survey did prove worth having.** 4 of 17 URLs are already dead — three 404s and a 403. A quarter of the library is unrecoverable. Storing the file is the whole fix and needs none of the parsing.
+
+**Measured facts to keep:**
+- Parsing is cheap where it happens: 13–30ms per page, 35–41ms to load. Never the constraint.
+- Column detection must run on **raw text items, before line clustering**. Measured on a known two-column page: items found the gutter (12% of width at x≈45%); y-clustered lines missed it entirely, because a left-column and a right-column line share a baseline and merge into one full-width span.
+- A standard 24pt gutter on US Letter is 3.9% of page width. A 4% threshold sits exactly on the boundary.
+- 46% of these PDFs have a null or empty `Info.Title`. One was a `file:///Users/<name>/Downloads/…​.html` path — a browser print-to-PDF artefact that would have published a stranger's local path and username into Notion. **Reject a title on its shape, never against a list of known-bad names.**
+- Roughly a third of stored PDF links are `http://`. Notion refuses a non-SSL file import, so those degrade to a link. That is requirement 1's designed fallback, and `pdf_degraded` logs it.
+
+**Complete when:** Wil reviews the work, and a real PDF clip in `attach` mode shows the header, the notice, and the stored file.
+
+---
+
 ## Backlog
 
 Write new work here. Do not correct it immediately.
+
+**`mcp.ts` bundle figure in the docs is stale (noticed 2026-08-26):**
+
+M3 records 49.5KB and `CLAUDE.md` says "approximately 44KB". Measured at HEAD before any M8 change: **52,708 bytes**. M8 added 258 bytes of it. The heavy half is still absent — a check for `require`/`import` of `jsdom`, `@mozilla/readability`, `pdfjs-dist` or `pdf-lib` in the bundle returns nothing, and the only matches for those words are comments. So the constraint holds and only the recorded number drifted. Correct the two documents the next time either is edited.
 
 **✅ Three documents say that `/health` reports the deployed commit. It does not (found 2026-08-17, corrected 2026-08-19).**
 
@@ -552,6 +587,8 @@ The second Divisare clip stored 29 of 33 images and used links for 4. All four a
 The correction is to import a file that is not an image as a Notion **file block** and not as an image block. `POST /v1/file_uploads` accepts PDFs, so the drawing would be in Notion and a person could open it. That is a new block type in the converter. Do this only if it occurs again. On architecture websites it will probably occur again, because plans and sections are usually PDFs.
 
 **Reviewed on 2026-08-15 and not built, on purpose.** The page is easy to read as it is. The cost is four drawings on the Divisare servers and not in Notion. This is a permanence problem and not a visible defect. Examine this again when a clip has a problem because of it.
+
+**Update (2026-08-26):** M8 built `pdfBlock` in the converter and `importPdf` in the pipeline, so the block type this item asks for now exists. What remains is smaller than the original description: add `application/pdf` to `MIME_EXTENSIONS`, emit `pdfBlock` from `convertImage` when the resolved type is a PDF, and let the collector that feeds the import loop see it. Still not built, for the same reason as before — a permanence problem and not a visible defect. It needs its own switch when it is built, because it changes what happens to an **HTML** article and must not be governed by `PDF_MODE`.
 
 **Not corrected in the M6 image work, on purpose:**
 

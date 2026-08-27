@@ -1109,6 +1109,52 @@ export function statusCallout(clipId: string): Block {
   };
 }
 
+/**
+ * The source PDF itself, stored on the page.
+ *
+ * Emitted with an `external` URL and swapped for a `file_upload` by the same
+ * pipeline path that handles images — so it degrades to a link rather than
+ * vanishing when Notion refuses the import. Notion refuses a non-SSL URL, and
+ * a meaningful share of real PDF links are still `http://`, so that degradation
+ * is a routine outcome here rather than an edge case.
+ */
+export function pdfBlock(url: string, caption: RichText[] = []): Block {
+  return {
+    object: "block",
+    type: "pdf",
+    pdf: { type: "external", external: { url }, caption: splitRichText(caption).slice(0, 100) },
+  };
+}
+
+/**
+ * Says on the page what the service did and did not do with a PDF.
+ *
+ * Without this, a page holding a header and an attachment but no prose reads as
+ * a clip that went wrong. The status is reported as CLIPPED because storing the
+ * file is the whole of what the service promises for a PDF — so the page has to
+ * say that plainly, or the caller's "clipped" becomes a claim the page does not
+ * support.
+ */
+export function pdfNoticeCallout(): Block {
+  return {
+    object: "block",
+    type: "callout",
+    callout: {
+      rich_text: splitRichText([
+        makeRichText("This is a PDF. ", { bold: true }, null),
+        makeRichText(
+          "The file is stored below, so it survives the source going away. Its text was " +
+            "not extracted and is not searchable in Notion.",
+          {},
+          null,
+        ),
+      ]),
+      icon: { type: "emoji", emoji: "📄" },
+      color: "gray_background",
+    },
+  };
+}
+
 export function errorCallout(message: string, clipId: string): Block {
   return {
     object: "block",
