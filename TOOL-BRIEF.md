@@ -1,6 +1,6 @@
 # clip2notion — tool reference
 
-**Last change: 2026-08-16.** This document describes the connector on that date. If the tool changes, change this document also.
+**Last change: 2026-08-26.** This document describes the connector on that date. If the tool changes, change this document also.
 
 This document covers only the clipping tool. It does not cover the Resources database, Areas, Tags, or the other parts of the workflow.
 
@@ -29,6 +29,8 @@ Open the page. It has these parts, in this order:
 1. A **`Source:`** line: the title of the article as a link, then the publication, the author, and the date
 2. The article, with its headings
 3. A **Footnotes** section at the end, if the original article has footnotes
+
+**A PDF looks different, and that is correct.** The page has the `Source:` line, then a 📄 notice, then the PDF file itself. There is no article text, because the service does not read the text inside a PDF. See section 5.
 
 Then look at the images. No tool can confirm that an image shows correctly. Claude can confirm that an image is in Notion, but not that the image shows. If an image does not show, report it. Do not assume that a reported success means that each image is correct.
 
