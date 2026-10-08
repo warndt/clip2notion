@@ -147,7 +147,7 @@ This is important in one situation, and that situation causes the most confusion
 
 ## 4. The five rules — keep these in the system prompt
 
-Each rule exists because an incorrect action gives an incorrect answer with confidence, or gives content two times. **Do not replace these with a link to this document.** A caller that has not read this document must still obey them.
+Each rule exists because an incorrect action gives an incorrect answer with confidence, or gives content two times. **Do not replace these with a link to this document.** A caller that has not read this document must still obey them. Keep one more beside them, from §3: after a clip with `force`, read the written time before believing `CLIPPED`.
 
 **1. A successful `clip_article` does NOT mean that the service clipped the article.**
 It means that the work started. The work continues in the background and can still fail. Never report success because of this response. Use `clip_status` to confirm the result first.
@@ -185,7 +185,7 @@ The selection is strict on purpose. A lost main image is a small loss. A site lo
 
 **A PDF is stored, and it is never read.** When the URL is a PDF, the service does not extract the text. It writes a header, a notice that says the text was not extracted, and the file itself, so the document stays available after the source website removes it. `clip_status` reports `CLIPPED`, because storing the file is the whole of what the service promises for a PDF. **Do not tell the user that the text of the PDF is on the page. It is not.**
 
-You can read a PDF yourself. Therefore the useful action is: open the URL, write a summary onto the page, and call `clip_article` so that the file is stored. The `AI summarized` status exists for this.
+You can read a PDF yourself. Therefore the useful action is: call `clip_article` so that the file is stored, confirm `CLIPPED`, then write a summary onto the page. Never write the summary first: a block that links to the URL looks like a clip that already exists, and the service then writes nothing. The summary is the caller's work, not the user's reading: leave any read or actioned status for the user to set.
 
 Two limits apply to a PDF. The service refuses a PDF when its operator sets `PDF_MODE` to `detect` or `off`; the message says so and nothing is written. And Notion refuses a file from a `http://` URL, so the service keeps a link to the source instead of a stored copy. Roughly one PDF in three is affected. Nothing is lost and nothing else changes.
 
@@ -195,7 +195,7 @@ Two limits apply to a PDF. The service refuses a PDF when its operator sets `PDF
 
 Do not give one of these messages as the other. Until 2026-08-16 both gave the same sentence: "this article can't be fetched without a login". This caused the user to look for a subscription for a free article. If the message does not say login or subscription, do not add one.
 
-**A new Resources page already has content, and this is usual.** The templates `[New resource] <v1.0>` and its similar templates add a version toggle and a divider, with the preset properties. Confirmed on 2026-08-14. **Clip into the page. Never wait for the page to have a specific appearance before you start.**
+**A new Resources page already has content, and this is usual.** The templates `[New resource] <v1.0>` and its similar templates add a version toggle and a divider, with the preset properties. Confirmed on 2026-08-14. **Clip into the page. Never wait without a limit for the page to have a specific appearance.**
 
 **Content on a page does not show that a clip exists.** The `force: false` check is for each URL and not for each page (section 2). A page has a clip only when it has a clip header with a link to **that** URL. Template content and your notes are not a clip. If you use `force` because a page is not empty, you break rule 5 and delete content that was never a clip.
 

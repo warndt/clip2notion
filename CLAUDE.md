@@ -217,6 +217,8 @@ Content-Type: application/json
 
 **`TOOL-BRIEF.md` documents this contract.** There is a copy in a Notion page that the calling session reads, and a summary in the caller's system prompt. Keep the contract simple and stable. The Notion copy does not update itself, and a system prompt does not update itself. Each addition must be optional and must not break an existing caller. **If you change this section, change `TOOL-BRIEF.md` in the same commit.** Also tell Wil that a person must update the Notion copy and the system prompt.
 
+TOOL-BRIEF.md has a private mirror; after changing it, tell the maintainer so the mirror gets updated.
+
 ### Response
 
 `/clip` is synchronous. Each status code has an exact meaning.
